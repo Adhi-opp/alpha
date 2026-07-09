@@ -1,0 +1,84 @@
+{
+  "study": "H-001b",
+  "n_days": 248,
+  "n_top": 173,
+  "n_bottom": 75,
+  "sample": [
+    "2024-07-12",
+    "2026-01-07"
+  ],
+  "primary": {
+    "mean_ev_rs": -804.0459893219605,
+    "ci": [
+      -1348.9532297374878,
+      -395.34663230340334
+    ],
+    "p": 0.0004998750312421895
+  },
+  "stress_ev_rs": -878.8612424032822,
+  "differential": {
+    "top_minus_bottom_rs": 1603.11014266876,
+    "ci": [
+      805.032259818633,
+      2270.364810498805
+    ]
+  },
+  "split_half": [
+    -403.3400296736602,
+    -1200.1461333421191
+  ],
+  "fill": {
+    "fill_rate": 0.9939017341040463,
+    "no_fill_rate": 0.005780346820809248,
+    "dropped_days": [
+      "2024-11-01"
+    ],
+    "mean_trunc_frac": 0.0003179190751445087
+  },
+  "secondary": {
+    "expiry_day_ev": 923.5688134864555,
+    "non_expiry_ev": -1095.8728141206795,
+    "n_expiry_days": 25,
+    "focused_desk_ev": -893.6232996129305,
+    "bottom_book_ev": -2407.1561319907205,
+    "per_leg": {
+      "ce_pnl": -118.2418720873051,
+      "pe_pnl": -560.2400685379455
+    }
+  },
+  "attribution_rs_per_ticket": {
+    "gross_move_ex_friction": -47.248554913294775,
+    "latency_drag": 3.8895180972180032,
+    "adverse_drag": -559.8160306495212,
+    "spread_drag": -75.30687315965444,
+    "statutory": -129.61127901884447
+  },
+  "gates": [
+    {
+      "name": "primary_ev_ci",
+      "passed": false,
+      "detail": "mean net -804 Rs/ticket, 90% CI [-1349, -395]"
+    },
+    {
+      "name": "stress_spread",
+      "passed": false,
+      "detail": "EV at 0.50% half-spread -879 Rs"
+    },
+    {
+      "name": "conditioning_diff",
+      "passed": true,
+      "detail": "top-bottom +1603 Rs, CI [+805, +2270]"
+    },
+    {
+      "name": "bh_deflated_p",
+      "passed": true,
+      "detail": "p=0.00050 vs threshold 0.01429"
+    },
+    {
+      "name": "split_half_sign",
+      "passed": true,
+      "detail": "halves -403 / -1200 Rs"
+    }
+  ],
+  "verdict": "INVERTED"
+}

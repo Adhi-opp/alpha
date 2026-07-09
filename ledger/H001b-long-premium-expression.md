@@ -1,7 +1,7 @@
 # H001b — The tradeable question: long premium on heavy-writing days, at full cost
 
-- **Status:** DRAFT (freeze happens via scripts/run_study.py before any result)
-- **Registered:** 2026-07-09 (draft)  **Verdict date:** —
+- **Status:** INVERTED (primary significantly negative; conditioning gate passed)
+- **Registered:** 2026-07-09 (frozen 4fbaac5dae6b0456)  **Verdict date:** 2026-07-09
 - **Family index:** 7
 
 ## Hypothesis
@@ -62,12 +62,70 @@ latency. This — not H001r — is the claim that could ever justify a ticket.
 
 ## Data used
 
-—
+- `dhan_rolling_1m` tidy parquet, 11,704,398 rows, 2023-07-01 → 2026-07-06;
+  census GREEN 2026-07-09 (docs/DATA_CENSUS.md): premium levels reconcile to
+  bhavcopy's official close at 98.10% within max(3%, ₹1), median 0.33%.
+  Candle OI is AMBER in that census and is NOT consumed here.
+- `participant_oi` via `alpha.study.h001r.client_write_intensity` (PIT,
+  merge_asof on available_at, same-day trap armed and silent).
+- `fo_bhavcopy` for per-date lot + front-week expiry.
+- Cost model `ZERODHA_NSE_OPTIONS_2026_07`; latency `OWNER_2026_07`
+  LogNormal(μ=4.55, σ=0.90)s, NO-FILL >900 s.
+- Results JSON: ledger/results/h001b_20260709.json.
 
 ## Results
 
-—
+n = 248 gradeable ticket-days (2024-07-12 → 2026-01-07); books 173 top / 75
+bottom — asymmetric because wi TRENDED UP across the sample, so the trailing
+cut was persistently exceeded; that is what a PIT-honest rolling cut does
+with a trending signal (a balanced-looking full-sample tercile would have
+leaked). Dropped: 2024-11-01 (Muhurat evening session — all draws truncated,
+disclosed). Fill rate 99.4%, no-fill 0.6% (latency censoring), truncated
+draws 0.03%.
+
+| gate | result | detail |
+|---|---|---|
+| 1 primary EV CI | **FAIL** | mean net **−₹804**/ticket, 90% MBB CI [−1349, −395] |
+| 2 stress 0.50% | **FAIL** | −₹879 |
+| 3 conditioning diff | **PASS** | top − bottom **+₹1,603**, CI [+805, +2270] |
+| 4 BH p | PASS | p=0.00050 ≤ 0.01429 |
+| 5 split-half sign | PASS | −403 / −1200 (both negative) |
+
+Attribution (₹/ticket, identity exact per filled draw):
+gross move ex-friction **−47** (trendiness nearly pays the theta),
+latency **+4** (irrelevant near the open), adverse fills **−560** (the
+killer — every 09:16–09:30 entry pays the arrival bar's HIGH by the frozen
+insufficient-history rule, and mornings genuinely are the wide regime),
+half-spread **−75**, statutory **−130**.
+
+Secondary (reported, NOT gated): expiry-day tickets **+₹924** (n=25) vs
+non-expiry **−₹1,096**; FOCUSED_DESK sensitivity −₹894 (faster hands do not
+save it); per-leg CE −118 / PE −560; bottom book **−₹2,407**.
 
 ## Verdict & rationale
 
-—
+**INVERTED.** The claim "long the front-week ATM straddle at the open on
+heavy-writing days earns positive net EV" is rejected with confidence — the
+effect is significantly the OPPOSITE sign. But this is the most informative
+kill possible: **the conditioning gate passed** (+₹1,603 differential,
+CI excludes zero). H001r's signal is real and visible in premium space —
+heavy-writing days lose ₹1,600 LESS than light-writing days. The EXPRESSION
+is what dies: an open-to-15:20 ATM straddle carries a ~₹2,400 baseline tax
+(bottom book) that conditioning only halves.
+
+What ate the edge, per the pre-registered attribution: **adverse fills
+(−560)** dominate — the volatile-open entry rule — then statutory (−130),
+spread (−75), theta-net-of-trendiness (−47). Latency was NOT the problem
+(+4): the owner's 30 s–15 min hands are fine when the intent is at a fixed
+bar.
+
+Per the pre-reg NO-GO clause, this attribution is the design input for the
+successor. Two pre-registerable directions it points at (each needs its own
+entry — no silent sign-flips, no post-hoc expiry cherry-pick):
+1. **H-002 intraday trigger**: enter after bar 30 in a CALM bar (the
+   adverse-fill rule then prices fills at the close, killing the −560), on
+   the same conditioning.
+2. **Expiry-day-only expression**: the +₹924 × 25-day secondary is a
+   hypothesis GENERATOR (n too thin to be evidence), consistent with
+   0-DTE gamma paying trendiness fastest.
+Holdout 2026-01-09 → 2026-07-06 remains locked and untouched.

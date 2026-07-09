@@ -96,3 +96,20 @@ Phase 4  risk/ paper/ sizing tickets, drawdown ledger, kill-switch, nightly
   Human-input-needed list: docs/NEXT_STEPS.md §5. Next: Dhan free account +
   dry-run, then Phase 2 study framework (pre-registration enforcement,
   purged walk-forward, block-bootstrap CIs).
+- 2026-07-09 — Phase 2/4 anti-leakage machinery (purged+embargoed
+  walk-forward, MBB/stationary bootstrap, pre-reg freeze/hash, calibration
+  with isotonic→Platt switch). **H-001r ran: GO** (+0.116 tercile diff,
+  CI [+0.067, +0.174], p=0.0005, survives partials; holdout locked). Dhan
+  rollingoption reverse-verified live (id 13, NSE_FNO, ec 1-indexed, toDate
+  inclusive); 3-yr 1-min pull: 1,554 calls, zero empties → 11.7M-row tidy
+  parquet; census GREEN for premium levels (98.1% within max(3%, ₹1) of
+  bhavcopy's official close — which is the last-half-hour average, a
+  definition trap now documented). Execution sim v1: owner-calibrated
+  stochastic latency (LogNormal μ=4.55 σ=0.90 s, NO-FILL >900 s) + adverse
+  fills, Monte Carlo distributions. **H-001b ran at full cost: INVERTED**
+  (open→15:20 ATM straddle on heavy-writing days = −₹804/ticket, CI
+  [−1349, −395]; yet the conditioning differential PASSED: top beats bottom
+  by +₹1,603, CI [+805, +2270] — the signal is real, the expression loses;
+  adverse fills −₹560 were the killer; expiry-day secondary +₹924 (n=25) is
+  H-002's design input). 114 tests green. The truth machine paid for itself
+  today: one GO, one honest kill, zero rupees risked.

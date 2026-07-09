@@ -38,6 +38,7 @@ Registered in THIS project (family continues from 6):
 | entry | hypothesis | verdict |
 |---|---|---|
 | [[H001r]] (6) | re-validation: retail writing → next-session trendiness | **GO** 2026-07-09 (+0.116, CI [+0.067, +0.174], p=0.0005; survives partials; holdout still locked) |
+| [[H001b]] (7) | long front-week ATM straddle on heavy-writing days, full cost | **INVERTED** 2026-07-09 (EV −₹804/ticket, CI [−1349, −395] — yet conditioning differential +₹1,603 CI [+805, +2270] PASSED: the signal is real, the expression loses; adverse fills ate −₹560. Expiry-day secondary +₹924 (n=25) = H-002 design input) |
 
 ## Rules
 

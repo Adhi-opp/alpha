@@ -140,9 +140,21 @@ STILL OPEN (load-bearing; promotion blocked until supplied):
 
 ## 6. Only then: studies
 
-H-001r pre-registration (copy `ledger/TEMPLATE.md` → freeze criteria →
-run). Then H-001b. The study runner that enforces pre-reg hashing gets
-built as part of this step.
+DONE 2026-07-09, both: **H-001r → GO**, **H-001b → INVERTED** (long ATM
+straddle at open on heavy-writing days loses −₹804/ticket at full cost;
+conditioning differential +₹1,603 passed — signal real, expression dead;
+adverse fills −₹560 were the killer). Runner: `scripts/run_study.py
+--study h001r|h001b`; census: `scripts/census_rolling.py`. What's next is
+successor registrations, each a NEW ledger entry (family m grows — the BH
+bar tightens honestly):
+
+1. **H-002 intraday-trigger expression** — same conditioning, entry after
+   bar 30 in a calm bar (defuses the −₹560 volatile-open adverse rule).
+   Design input: ledger/H001b Results attribution.
+2. **Expiry-day-only long premium** — the +₹924 (n=25) H001b secondary is
+   a hypothesis generator, NOT evidence. Needs its own pre-reg.
+
+Do not touch the holdout (≥ 2026-01-09) for any of these.
 
 ## Standing rules (apply to every step above)
 

@@ -26,7 +26,27 @@ STUDIES = {
         "ledger": PROJECT_ROOT / "ledger" / "H001r-retail-writing-trendiness-revalidation.md",
         "run": lambda: __import__("alpha.study.h001r", fromlist=["run"]).run(),
     },
+    "h001b": {
+        "ledger": PROJECT_ROOT / "ledger" / "H001b-long-premium-expression.md",
+        "run": lambda: __import__("alpha.study.h001b", fromlist=["run"]).run(),
+    },
 }
+
+_TOP_KEYS = ("study", "n_days", "sample", "gates", "verdict")
+
+
+def _print_result(result: dict) -> None:
+    """Study-agnostic report: header, every metric, gates, verdict."""
+    print(f"study    : {result['study']}   n={result['n_days']} days "
+          f"({result['sample'][0]} .. {result['sample'][1]})")
+    for k, v in result.items():
+        if k in _TOP_KEYS:
+            continue
+        print(f"{k:<24}: {json.dumps(v, default=str)}")
+    print("gates    :")
+    for g in result["gates"]:
+        print(f"  [{'PASS' if g['passed'] else 'FAIL'}] {g['name']:<18} {g['detail']}")
+    print(f"\nVERDICT  : {result['verdict']}")
 
 
 def main() -> int:
@@ -47,21 +67,7 @@ def main() -> int:
     out = out_dir / f"{args.study}_{date.today():%Y%m%d}.json"
     out.write_text(json.dumps(result, indent=2))
 
-    print(f"study    : {result['study']}   n={result['n_days']} days "
-          f"({result['sample'][0]} .. {result['sample'][1]})")
-    p = result["primary"]
-    print(f"primary  : tercile diff {p['tercile_diff']:+.4f}   "
-          f"90% CI [{p['ci'][0]:+.4f}, {p['ci'][1]:+.4f}]   p={p['p']:.5f}")
-    print(f"spearman : {result['spearman']:+.4f}   partial "
-          f"{result['partial_spearman']['rho']:+.4f} "
-          f"CI [{result['partial_spearman']['ci'][0]:+.4f}, "
-          f"{result['partial_spearman']['ci'][1]:+.4f}]")
-    print(f"halves   : {result['split_half'][0]:+.4f} / {result['split_half'][1]:+.4f}   "
-          f"secondary z60 diff {result['secondary_wi_z60_tercile_diff']:+.4f}")
-    print("gates    :")
-    for g in result["gates"]:
-        print(f"  [{'PASS' if g['passed'] else 'FAIL'}] {g['name']:<18} {g['detail']}")
-    print(f"\nVERDICT  : {result['verdict']}")
+    _print_result(result)
     print(f"results  -> {out}")
     return 0
 
