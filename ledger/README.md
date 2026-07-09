@@ -33,6 +33,12 @@ record (study docstrings, NOTES.md, calibrate.py, core/config.py):
 | [[G004]] | L1 CVD flow-toxicity → confirm quality | NO-GO (terciles flat 44/43/43) |
 | [[G005]] | DRIFT alignment factor | NO-GO/INVERTED (−37pp lift, zeroed) — identity as the 4th: owner to confirm |
 
+Registered in THIS project (family continues from 6):
+
+| entry | hypothesis | verdict |
+|---|---|---|
+| [[H001r]] (6) | re-validation: retail writing → next-session trendiness | **GO** 2026-07-09 (+0.116, CI [+0.067, +0.174], p=0.0005; survives partials; holdout still locked) |
+
 ## Rules
 
 - No result may be computed before the pre-reg section is frozen.

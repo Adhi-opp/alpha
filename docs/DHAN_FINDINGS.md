@@ -58,17 +58,27 @@ implied. Widen offsets to ±5 only if a study needs the wings.
   index-option snapshot (`snapshot_index_option_master`, 13,516 rows/day)
   stays useful for forward lot-size/expiry provenance.
 
-## Still VERIFY before the pull (via `scripts/dhan_probe.py`, fresh env token)
+## VERIFIED LIVE 2026-07-09 (probe matrix, raw responses in data/raw/dhan/_probe/)
 
-- `expiryCode` semantics for a rolling window — does 0 = front expiry that
-  rolls across the fromDate–toDate range? Confirm with one probe call and
-  save the raw response.
-- The NIFTY (and BANKNIFTY/SENSEX) **underlying** securityId + the exact
-  `exchangeSegment`/`instrument` enum strings (Annexure).
-- Timestamp timezone/epoch convention in the response (stamp `available_at`
-  correctly for PIT: expired-option rows are safely `available_at` = end of
-  their trade day, since they are pure history).
-- Rate limit (undocumented) — keep requests conservative.
+- **securityId = Dhan's own INDEX id from the master's INSTRUMENT=INDEX row
+  (NIFTY = "13")**. NSE's underlying id (26000) returns HTTP 200 + empty
+  arrays — a silent wrong-id trap.
+- **exchangeSegment = "NSE_FNO"** (IDX_I → empty).
+- **expiryCode is 1-indexed**: 1 = front weekly, 2 = next weekly (confirmed
+  by the IV differential 14.17 vs 11.64 on identical strike/spot). 0 is
+  rejected by a falsy server-side "required" check (DH-905).
+- **toDate is INCLUSIVE** — docs say non-inclusive; reality wins.
+- Sessions arrive complete: 375 one-minute candles 09:15–15:29 IST.
+- **The front-week series ROLLS the morning after expiry** (verified across
+  2026-06-30: expiry-day IV spikes 17.2 at open, dies to 0.000 on the
+  expiring contract's last candles, reopens 12.8 on the new front week).
+- **The series is a rolling-ATM COMPOSITE, not one contract**: the
+  per-candle `strike` re-selects intraday as spot moves. Tradeable
+  fixed-strike paths are reconstructed by pulling the ATM±10 offset fan and
+  re-keying rows by (timestamp, strike, side) — `alpha/data/dhan_rolling.py`
+  `tidy_archive_to_parquet` does exactly this.
+- Client: `alpha/data/dhan_rolling.py`; pull: `scripts/dhan_pull_rolling.py`
+  (~1,554 calls, resumable). Rate limit still undocumented — 0.5 s/req held.
 
 ## Cost model note (measured from the same session's contract notes)
 

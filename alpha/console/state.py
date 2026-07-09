@@ -87,6 +87,13 @@ def _parse_ledger_status(text: str) -> str:
     return "UNKNOWN"
 
 
+def _ledger_status(stem_prefix: str) -> str | None:
+    """Live status of a ledger entry (e.g. 'H001r'), None if no file yet."""
+    for f in sorted(LEDGER_DIR.glob(f"{stem_prefix}-*.md")):
+        return _parse_ledger_status(f.read_text(encoding="utf-8"))
+    return None
+
+
 def ledger() -> dict:
     # Imported GammaLeak-era family: 1 GO (H-001) + 4 NO-GO, per ledger/README.
     imported = {"registered": 5, "go": 1, "nogo": 4}
@@ -135,8 +142,11 @@ def build_state() -> dict:
         "promotion": promotion_gate(),
         "verdict": verdict(dd),
         "study_pipeline": [
-            {"id": "H-001r", "label": "re-validate edge", "status": "PRE-REG PENDING"},
-            {"id": "H-001b", "label": "option expression", "status": "QUEUED"},
-            {"id": "H-002", "label": "intraday trigger", "status": "FALLBACK"},
+            {"id": "H-001r", "label": "re-validate edge",
+             "status": _ledger_status("H001r") or "PRE-REG PENDING"},
+            {"id": "H-001b", "label": "option expression",
+             "status": _ledger_status("H001b") or "QUEUED"},
+            {"id": "H-002", "label": "intraday trigger",
+             "status": _ledger_status("H002") or "FALLBACK"},
         ],
     }

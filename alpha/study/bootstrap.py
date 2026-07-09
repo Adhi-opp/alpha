@@ -61,6 +61,44 @@ def moving_block_bootstrap(
             "ci": ci, "block_size": block_size, "distribution": dist}
 
 
+def mbb_index_distribution(
+    n: int,
+    statistic_on_index,
+    block_size: int = 10,
+    n_resamples: int = 2000,
+    seed: int | None = None,
+) -> np.ndarray:
+    """Moving-block bootstrap over ROW INDICES 0..n-1, for paired/multivariate
+    statistics (e.g. a tercile difference over (x, y) rows, or a partial
+    correlation). `statistic_on_index(idx)` receives a resampled integer index
+    array of length n, time-ordered within blocks."""
+    if n < MIN_BLOCK_SESSIONS:
+        raise ValueError(f"need at least {MIN_BLOCK_SESSIONS} observations")
+    if block_size < MIN_BLOCK_SESSIONS:
+        raise ValueError(f"block_size must be >= {MIN_BLOCK_SESSIONS}")
+    block_size = min(block_size, n)
+    rng = np.random.default_rng(seed)
+    n_blocks = int(np.ceil(n / block_size))
+    starts_max = n - block_size + 1
+    base = np.arange(block_size)
+    dist = np.empty(n_resamples)
+    for r in range(n_resamples):
+        starts = rng.integers(0, starts_max, size=n_blocks)
+        idx = np.concatenate([s + base for s in starts])[:n]
+        dist[r] = statistic_on_index(idx)
+    return dist
+
+
+def two_sided_p(dist: np.ndarray) -> float:
+    """Bootstrap two-sided p-value that the statistic's sign is not stable:
+    2 x min(P(dist<=0), P(dist>=0)), with the +1 small-sample correction."""
+    dist = np.asarray(dist, dtype=float)
+    n = len(dist)
+    lo = (np.sum(dist <= 0) + 1) / (n + 1)
+    hi = (np.sum(dist >= 0) + 1) / (n + 1)
+    return float(min(1.0, 2 * min(lo, hi)))
+
+
 def stationary_bootstrap(
     values,
     statistic: Callable[[np.ndarray], float] = np.mean,
