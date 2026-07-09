@@ -22,10 +22,16 @@ runner hashes it) → `RUNNING` → verdict:
 
 The multiple-testing family = every entry ever registered here, including
 imported history. Current family count: **5 imported** (GammaLeak era:
-1 GO — H-001; 4 NO-GO) + entries in this directory. The 4 imported
-rejections need backfilling from the original GammaLeak study docs — one is
-FII flow → next-day drift (`d:\GammaLeak\research\study_fii_flow_drift.py`);
-the other three: **TODO(owner): list them so the family count is exact.**
+1 GO — H001; 4 NO-GO), all backfilled 2026-07-09 from the GammaLeak repo
+record (study docstrings, NOTES.md, calibrate.py, core/config.py):
+
+| entry | hypothesis | verdict |
+|---|---|---|
+| [[H001]] | retail write intensity → next-session trendiness | GO (pending H-001r re-validation) |
+| [[G002]] | dealer-gamma sign → intraday 5-min autocorrelation | NO-GO (its secondary spawned H001) |
+| [[G003]] | FII futures flow → next-day drift | NO-GO (died under prior-day-return partial) |
+| [[G004]] | L1 CVD flow-toxicity → confirm quality | NO-GO (terciles flat 44/43/43) |
+| [[G005]] | DRIFT alignment factor | NO-GO/INVERTED (−37pp lift, zeroed) — identity as the 4th: owner to confirm |
 
 ## Rules
 

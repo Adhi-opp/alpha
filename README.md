@@ -39,7 +39,7 @@ project's grader.
 ## Operating constraints (decided 2026-07-05, revisit only deliberately)
 
 | Constraint | Value |
-|---|---|
+| --- | --- |
 | Capital | ₹40,000, **fixed** — only profits compound ("prove it first") |
 | Live-feasible instruments | Long options and defined-risk debit structures on index; small cash/ETF. **Short premium and futures are margin-infeasible at this capital → shadow/paper book only** (studies still run; they activate if capital ever grows) |
 | Bias | Options **buyer** — long premium is structurally negative-EV, so half the edge is knowing when NOT to buy |
@@ -52,7 +52,7 @@ project's grader.
 
 ## Layer map (build order = top to bottom; see docs/ARCHITECTURE.md)
 
-```
+```text
 Phase 0  data/       versioned raw archives, PIT accessor, integrity guards,
                      derived calendars (trading days, expiries-from-data, events)
 Phase 1  measure/    cost model → labeler (triple-barrier, underlying AND
@@ -62,9 +62,10 @@ Phase 2  study/      pre-registration enforcement, purged/embargoed walk-forward
                      block-bootstrap CIs, multiple-testing control, locked holdout
 Phase 3  ledger/     first studies: re-validate H-001 under this stack, then its
                      option-premium expression (H-001b)
-Phase 4  model/      logistic/GBM + isotonic calibration (Brier/ECE); abstention
-                     threshold from cost-adjusted EV. No deep learning until
-                     simple models are beaten fairly
+Phase 4  model/      calibration (Brier/ECE; isotonic with a Platt fallback
+                     when signals are sparse); abstention threshold from
+                     cost-adjusted EV. No deep learning until simple models
+                     are beaten fairly
 Phase 4  risk/ paper/ sizing tickets, drawdown ledger, kill-switch, nightly
                      paper track with pre-fixed promotion criteria
 ```
@@ -75,4 +76,23 @@ Phase 4  risk/ paper/ sizing tickets, drawdown ledger, kill-switch, nightly
 
 - 2026-07-05 — project initiated. Constraints interrogated and locked.
   Architecture, candidate menu (docs/CANDIDATES.md), and hypothesis ledger
-  scaffolded. Next: Phase 0 data layer.
+  scaffolded.
+- 2026-07-07 — Phase 0 data layer built and live-verified (28 tests green;
+  real 2026-07-06 session fetched end-to-end; PIT lag discipline verified).
+  Data/broker decision recorded in docs/DATA.md: Dhan one-time historical
+  pull, free Upstox for live quotes, no tick infrastructure in Alpha.
+  Measured en route: NIFTY lot size is 65 (read from file, never assumed);
+  NSE's participant-OI TOTAL row is internally off by ±1 (guard tolerates
+  ≤2). Solo-continuation runbook: docs/NEXT_STEPS.md.
+- 2026-07-08 — Phase 1 measurement layer built (53 tests green). Cost model
+  fitted to and verified against a REAL Zerodha contract note
+  (CNT-26/27-55126969) — reproduces every charge line to the rupee; broker
+  is Zerodha, not Upstox (Upstox is data-only). Triple-barrier labeler
+  (same-bar ambiguity → stop; data gaps → truncated, never a silent
+  time-exit), execution fill model (manual delay + spread as a required
+  input, every fill flagged estimated until real depth exists), and the
+  counterfactual grader (grades abstentions too). Measured cost hurdle for a
+  buyer: ~0.4–1.5% of premium round-trip. 3-year free-layer backfill running.
+  Human-input-needed list: docs/NEXT_STEPS.md §5. Next: Dhan free account +
+  dry-run, then Phase 2 study framework (pre-registration enforcement,
+  purged walk-forward, block-bootstrap CIs).

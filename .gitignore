@@ -1,0 +1,17 @@
+# Root-anchored: /data/ is the raw+derived data store. An unanchored "data/"
+# here once silently ignored alpha/data/ — the entire data-layer SOURCE.
+/data/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.pytest_tmp/
+.env
+*.log
+# curl/debug artifacts that must never live at repo root
+/bhav.zip
+/legacy.zip
+/legacy_extract/
+/poi.csv
+/dhan_master.csv
+/BhavCopy_*.csv

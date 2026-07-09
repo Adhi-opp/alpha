@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alpha · Decision Console</title>
+<style>
+  :root {
+    --ground:#E7ECEC; --surface:#FFFFFF; --surface-2:#F1F5F5;
+    --ink:#141F1E; --ink-muted:#5B6D71; --ink-faint:#8A9A9D;
+    --line:#D2DBDC; --line-strong:#BCC7C8;
+    --accent:#0C6E78; --accent-deep:#0A555D; --accent-wash:#DCEDEE;
+    --go:#2E7D5B; --go-wash:#DCEEE4; --caution:#9A6712; --caution-wash:#F3E9D4;
+    --stop:#AF3D37; --stop-wash:#F3DEDC;
+    --font-sans: system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --font-mono: ui-monospace,"Cascadia Code","SF Mono",Consolas,"Liberation Mono",monospace;
+    --r:14px; --r-sm:9px;
+  }
+  @media (prefers-color-scheme: dark){ :root{
+    --ground:#0C1214; --surface:#141C1E; --surface-2:#192326;
+    --ink:#E6EDEC; --ink-muted:#8CA0A4; --ink-faint:#63767A;
+    --line:#25312F; --line-strong:#33423F;
+    --accent:#40B4C0; --accent-deep:#6DD0D8; --accent-wash:#122A2C;
+    --go:#4FB78D; --go-wash:#13291F; --caution:#D6A445; --caution-wash:#2C2411;
+    --stop:#E46C61; --stop-wash:#301917; } }
+  html,body{ margin:0; background:var(--ground); }
+  *{ box-sizing:border-box; }
+  body{ font-family:var(--font-sans); color:var(--ink); line-height:1.5;
+    -webkit-font-smoothing:antialiased; padding:clamp(14px,3vw,30px);
+    max-width:1180px; margin:0 auto; }
+  h1,h2,h3,p{ margin:0; }
+  .mono,.num{ font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
+  .eyebrow{ font-family:var(--font-mono); font-size:11px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--ink-faint); font-weight:600; }
+  .banner{ display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+    font-family:var(--font-mono); font-size:11.5px; color:var(--ink-muted);
+    background:var(--surface-2); border:1px dashed var(--line-strong);
+    border-radius:var(--r-sm); padding:8px 13px; margin-bottom:18px; }
+  .banner b{ color:var(--accent-deep); }
+  .rail{ display:grid; grid-template-columns:1.3fr 1fr 1fr 1fr; gap:1px;
+    background:var(--line); border:1px solid var(--line); border-radius:var(--r);
+    overflow:hidden; margin-bottom:16px; }
+  .rail>div{ background:var(--surface); padding:14px 16px; }
+  .rail .label{ font-family:var(--font-mono); font-size:10.5px; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--ink-faint); margin-bottom:6px; }
+  .brand{ display:flex; align-items:center; gap:11px; }
+  .crest{ width:30px; height:30px; border-radius:8px; flex:none;
+    background:linear-gradient(150deg,var(--accent),var(--accent-deep));
+    display:grid; place-items:center; color:#fff; font-family:var(--font-mono);
+    font-weight:700; font-size:15px; }
+  .brand .name{ font-weight:680; } .brand .sub{ font-family:var(--font-mono);
+    font-size:10.5px; color:var(--ink-faint); letter-spacing:.08em; text-transform:uppercase; }
+  .stat-big{ font-family:var(--font-mono); font-size:19px; font-weight:600;
+    display:flex; align-items:baseline; gap:7px; }
+  .dot{ width:8px; height:8px; border-radius:50%; display:inline-block; flex:none;
+    background:var(--go); box-shadow:0 0 0 3px var(--go-wash); }
+  .pillline{ font-size:12px; color:var(--ink-muted); }
+  .gauge{ height:7px; border-radius:99px; background:var(--surface-2); overflow:hidden;
+    margin-top:9px; border:1px solid var(--line); }
+  .gauge>i{ display:block; height:100%; border-radius:99px;
+    background:linear-gradient(90deg,var(--go),var(--caution) 70%,var(--stop)); }
+  .verdict{ position:relative; background:var(--surface); border:1px solid var(--line);
+    border-left:5px solid var(--accent); border-radius:var(--r);
+    padding:clamp(22px,4vw,38px); margin-bottom:16px; overflow:hidden; }
+  .verdict.halt{ border-left-color:var(--stop); }
+  .verdict::after{ content:""; position:absolute; inset:0 0 0 auto; width:38%;
+    background:radial-gradient(120% 80% at 100% 0,var(--accent-wash),transparent 70%);
+    pointer-events:none; opacity:.7; }
+  .verdict .top{ display:flex; justify-content:space-between; gap:16px;
+    align-items:flex-start; flex-wrap:wrap; position:relative; z-index:1; }
+  .verdict h1{ font-size:clamp(42px,7.5vw,78px); line-height:.98; letter-spacing:-.03em;
+    font-weight:720; text-wrap:balance; margin:14px 0 0; }
+  .verdict .lede{ font-size:clamp(15px,1.7vw,17px); color:var(--ink-muted);
+    max-width:52ch; margin-top:14px; position:relative; z-index:1; }
+  .glyph{ font-family:var(--font-mono); color:var(--accent-deep); font-size:15px;
+    font-weight:700; }
+  .chip{ display:inline-flex; align-items:center; gap:7px; font-family:var(--font-mono);
+    font-size:11.5px; font-weight:600; letter-spacing:.06em; text-transform:uppercase;
+    padding:6px 11px; border-radius:99px; border:1px solid var(--accent);
+    color:var(--accent-deep); background:var(--accent-wash); }
+  .nearest{ position:relative; z-index:1; margin-top:22px; padding-top:16px;
+    border-top:1px solid var(--line); display:flex; gap:26px; flex-wrap:wrap; align-items:center; }
+  .nearest .k{ font-family:var(--font-mono); font-size:10.5px; letter-spacing:.13em;
+    text-transform:uppercase; color:var(--ink-faint); }
+  .nearest .v{ font-family:var(--font-mono); font-size:15px; font-weight:600; margin-top:3px; }
+  .below{ color:var(--caution); }
+  .grid{ display:grid; gap:16px; margin-bottom:16px; }
+  .grid.two{ grid-template-columns:1fr 1fr; } .grid.three{ grid-template-columns:1.1fr 1fr 1fr; }
+  .card{ background:var(--surface); border:1px solid var(--line); border-radius:var(--r); padding:20px; }
+  .card h3{ font-size:15px; font-weight:660; display:flex; align-items:center;
+    justify-content:space-between; gap:10px; }
+  .card .note{ font-size:12.5px; color:var(--ink-faint); margin-top:3px; }
+  .hr{ height:1px; background:var(--line); margin:15px 0; border:0; }
+  .terc{ display:grid; grid-template-columns:repeat(3,1fr); gap:5px; margin:14px 0 10px; }
+  .terc>i{ height:34px; border-radius:6px; background:var(--surface-2); border:1px solid var(--line);
+    display:grid; place-items:center; font-family:var(--font-mono); font-size:11px;
+    color:var(--ink-faint); font-weight:600; }
+  .terc>i.on{ background:var(--accent-wash); border-color:var(--accent); color:var(--accent-deep); }
+  .readline{ display:flex; gap:9px; align-items:baseline; }
+  .readline .big{ font-family:var(--font-mono); font-size:20px; font-weight:680; }
+  table{ width:100%; border-collapse:collapse; font-family:var(--font-mono);
+    font-variant-numeric:tabular-nums; font-size:13px; }
+  .scroll{ overflow-x:auto; }
+  th{ text-align:right; font-size:10px; letter-spacing:.11em; text-transform:uppercase;
+    color:var(--ink-faint); font-weight:600; padding:0 0 9px; border-bottom:1px solid var(--line); }
+  th:first-child,td:first-child{ text-align:left; }
+  td{ padding:8px 0; border-bottom:1px solid var(--line); }
+  tr:last-child td{ border-bottom:0; }
+  .rows{ display:flex; flex-direction:column; }
+  .row{ display:flex; justify-content:space-between; align-items:center; gap:12px;
+    padding:10px 0; border-bottom:1px solid var(--line); }
+  .row:last-child{ border-bottom:0; }
+  .row .t{ font-size:13.5px; color:var(--ink-muted); }
+  .badge{ font-family:var(--font-mono); font-size:11px; font-weight:600; letter-spacing:.04em;
+    padding:3px 9px; border-radius:99px; white-space:nowrap; }
+  .b-pend{ color:var(--caution); background:var(--caution-wash); }
+  .b-go{ color:var(--go); background:var(--go-wash); }
+  .b-off{ color:var(--ink-faint); background:var(--surface-2); }
+  .b-stop{ color:var(--stop); background:var(--stop-wash); }
+  .ticket{ background:var(--surface); border:1px solid var(--line); border-left:5px solid var(--go);
+    border-radius:var(--r); padding:22px; margin-bottom:16px; }
+  .ticket .instr{ font-family:var(--font-mono); font-size:22px; font-weight:700; }
+  .ticket .action{ font-family:var(--font-mono); font-size:13px; color:var(--go); font-weight:660; }
+  .metrics{ display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:var(--line);
+    border:1px solid var(--line); border-radius:var(--r-sm); overflow:hidden; margin:18px 0 14px; }
+  .metrics>div{ background:var(--surface); padding:13px 15px; }
+  .metrics .k{ font-family:var(--font-mono); font-size:10px; letter-spacing:.11em;
+    text-transform:uppercase; color:var(--ink-faint); }
+  .metrics .v{ font-family:var(--font-mono); font-size:17px; font-weight:660; margin-top:5px; }
+  .metrics .v small{ font-size:11.5px; color:var(--ink-muted); font-weight:500; }
+  .why{ font-size:13.5px; color:var(--ink-muted); } .why b{ color:var(--ink); }
+  .ticket .foot{ font-family:var(--font-mono); font-size:11.5px; color:var(--ink-faint);
+    margin-top:14px; padding-top:13px; border-top:1px solid var(--line); }
+  .pagefoot{ font-size:12.5px; color:var(--ink-faint); text-align:center; margin-top:22px; line-height:1.7; }
+  .pagefoot b{ color:var(--ink-muted); }
+  @media (max-width:860px){ .rail{ grid-template-columns:1fr 1fr; }
+    .grid.two,.grid.three{ grid-template-columns:1fr; } .metrics{ grid-template-columns:1fr 1fr; } }
+</style>
+</head>
+<body>
+  <div class="banner">
+    <b>LIVE</b> · this desk reads your real data. Panels tagged
+    <i>illustrative</i> (regime read, example ticket) await the study that fills them.
+  </div>
+
+  <div class="rail">
+    <div><div class="label">Console</div>
+      <div class="brand"><div class="crest">α</div>
+        <div><div class="name">Alpha</div><div class="sub">Decision Desk</div></div></div></div>
+    <div><div class="label">System</div>
+      <div class="stat-big"><span class="dot"></span><span id="sys-state">—</span></div>
+      <div class="pillline" id="sys-mode">—</div></div>
+    <div><div class="label">Data integrity</div>
+      <div class="stat-big" id="integ-state" style="color:var(--go)">—</div>
+      <div class="pillline num" id="integ-line">—</div></div>
+    <div><div class="label">Drawdown budget</div>
+      <div class="stat-big"><span class="num" id="dd-used">—</span><span id="dd-budget" style="font-size:13px;color:var(--ink-faint)"></span></div>
+      <div class="gauge"><i id="dd-bar" style="width:0%"></i></div></div>
+  </div>
+
+  <section class="verdict" id="verdict">
+    <div class="top"><span class="glyph" id="v-eyebrow">◇ TODAY'S CALL</span>
+      <span class="chip" id="v-chip">Abstention held</span></div>
+    <h1 id="v-headline">—</h1>
+    <p class="lede" id="v-detail">—</p>
+    <div class="nearest" id="v-nearest">
+      <div><div class="k">Nearest candidate</div><div class="v" id="v-cand">—</div></div>
+      <div><div class="k">Calibrated p(win)</div><div class="v below" id="v-p">—</div></div>
+      <div><div class="k">Verdict</div><div class="v below">Below threshold — no ticket</div></div>
+    </div>
+  </section>
+
+  <div class="grid two">
+    <div class="card">
+      <h3>Regime read <span class="eyebrow">T‑1 · conditioning</span></h3>
+      <p class="note">Retail index-option writing intensity (NSE participant OI). Conditions the odds — not itself a signal. <i>Illustrative until H‑001r runs.</i></p>
+      <div class="terc"><i>LIGHT</i><i class="on">MODERATE</i><i>HEAVY</i></div>
+      <div class="readline"><span class="big" style="color:var(--accent-deep)">Tercile 2 / 3</span>
+        <span class="note" style="margin:0">no strong trend-day tilt</span></div>
+      <hr class="hr">
+      <p class="note">Mechanism when it fires: heavier retail writing → writers capitulate into moves → trendier next session (H‑001).</p>
+    </div>
+    <div class="card">
+      <h3>Cost hurdle <span class="eyebrow">live · from your notes</span></h3>
+      <p class="note">Minimum premium move a long round trip must clear to break even. Fitted to your Zerodha contract notes (NIFTY/NSE).</p>
+      <div class="scroll"><table>
+        <thead><tr><th>Position</th><th>Round trip</th><th>Breakeven</th></tr></thead>
+        <tbody id="hurdle-body"></tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <div class="grid three">
+    <div class="card"><h3>Study pipeline</h3><div class="rows" id="pipeline"></div></div>
+    <div class="card"><h3>Hypothesis ledger</h3>
+      <div class="rows">
+        <div class="row"><span class="t">Registered (family)</span><span class="badge b-off num" id="l-reg">—</span></div>
+        <div class="row"><span class="t">Confirmed · GO</span><span class="badge b-go num" id="l-go">—</span></div>
+        <div class="row"><span class="t">Rejected · NO‑GO</span><span class="badge b-stop num" id="l-nogo">—</span></div>
+      </div>
+      <p class="note" style="margin-top:12px">Dead ideas stay — they raise the multiple-testing bar honestly.</p></div>
+    <div class="card"><h3>Promotion gate</h3>
+      <div class="readline" style="margin:6px 0 12px">
+        <span class="big" style="color:var(--caution)" id="g-met">—</span>
+        <span class="note" style="margin:0">conditions met</span></div>
+      <div class="rows">
+        <div class="row"><span class="t">Paper tickets graded</span><span class="badge b-off num" id="g-tickets">—</span></div>
+        <div class="row"><span class="t">Cost-adj. EV &gt; 0 (90% CI)</span><span class="badge b-off">—</span></div>
+        <div class="row"><span class="t">Holdout replication</span><span class="badge b-off">—</span></div>
+      </div></div>
+  </div>
+
+  <section class="ticket">
+    <div class="top"><span class="glyph" style="color:var(--go)">▸ WHEN A TICKET FIRES, IT LOOKS LIKE THIS</span>
+      <span class="chip" style="color:var(--go);border-color:var(--go);background:var(--go-wash)">example · illustrative</span></div>
+    <div class="top" style="margin-top:12px">
+      <div><div class="instr">NIFTY 24800 CE</div>
+        <div class="note">weekly · expiry Tue 14 Jul 2026 · conviction: retail-writing-heavy T‑1 + intraday trend break</div></div>
+      <div class="action">BUY 1 lot · 75 qty · manual on Zerodha</div></div>
+    <div class="metrics">
+      <div><div class="k">Entry (ask)</div><div class="v">₹128.00</div></div>
+      <div><div class="k">Stop → risk</div><div class="v">₹104 <small>−₹1,800</small></div></div>
+      <div><div class="k">Target → reward</div><div class="v">₹176 <small>+₹3,600</small></div></div>
+      <div><div class="k">Calibrated p(win)</div><div class="v">0.61 <small>CI .54–.68</small></div></div>
+    </div>
+    <p class="why"><b>Expected value +₹420</b> per ticket, 90% CI [+₹90, +₹740] — after theta, spread, STT and your manual fill delay. Cost hurdle ₹66: <b style="color:var(--go)">cleared</b>.</p>
+    <p class="foot">You place it. You log the fill back. The grader reconciles your real fill against the simulated one — implementation shortfall is measured, not assumed.</p>
+  </section>
+
+  <p class="pagefoot"><b>Abstention is the default state.</b> Expected value over hit rate · every number carries a CI · no live money until the promotion gate reads 7 / 7.<br>
+    <span id="asof">—</span> · reads real data, places no orders.</p>
+
+<script>
+const fmt = n => "₹" + Number(n).toLocaleString("en-IN");
+async function refresh(){
+  let s;
+  try { s = await (await fetch("/api/state")).json(); }
+  catch(e){ document.getElementById("v-headline").textContent = "Console offline"; return; }
+  const $ = id => document.getElementById(id);
+
+  $("sys-state").textContent = s.system.armed ? "ARMED" : "HALTED";
+  $("sys-mode").textContent = s.system.mode;
+
+  const cov = s.coverage;
+  $("integ-state").textContent = cov.green ? "GREEN" : "CHECK";
+  $("integ-state").style.color = cov.green ? "var(--go)" : "var(--caution)";
+  $("integ-line").textContent = cov.sessions + " / " + cov.sessions + " sessions · " + cov.gaps + " gaps";
+
+  const dd = s.drawdown;
+  $("dd-used").textContent = fmt(dd.used);
+  $("dd-budget").textContent = " / " + fmt(dd.budget);
+  $("dd-bar").style.width = Math.max(dd.pct, 2) + "%";
+
+  const v = s.verdict, card = $("verdict");
+  $("v-headline").textContent = v.headline;
+  $("v-detail").textContent = v.detail;
+  if (v.state === "HALT"){
+    card.classList.add("halt");
+    $("v-chip").textContent = "Kill-switch tripped";
+    $("v-nearest").style.display = "none";
+  } else if (v.nearest){
+    $("v-cand").textContent = v.nearest.candidate;
+    $("v-p").textContent = v.nearest.p == null ? "study not yet run"
+      : v.nearest.p + " vs need ≥ " + v.nearest.threshold;
+  }
+
+  $("hurdle-body").innerHTML = s.cost_hurdle.map(r =>
+    `<tr><td>${r.position}</td><td>${fmt(r.round_trip)}</td><td>+${r.breakeven_pct}%</td></tr>`).join("");
+
+  $("pipeline").innerHTML = s.study_pipeline.map(p => {
+    const cls = p.status.includes("PENDING") ? "b-pend" : "b-off";
+    return `<div class="row"><span class="t">${p.id} — ${p.label}</span><span class="badge ${cls}">${p.status}</span></div>`;
+  }).join("");
+
+  $("l-reg").textContent = s.ledger.family_registered;
+  $("l-go").textContent = s.ledger.go;
+  $("l-nogo").textContent = s.ledger.nogo;
+  $("g-met").textContent = s.promotion.met + " / " + s.promotion.total;
+  $("g-tickets").textContent = s.promotion.paper_tickets + " / " + s.promotion.paper_target;
+  $("asof").textContent = "Alpha Decision Desk · " + s.as_of;
+}
+refresh();
+setInterval(refresh, 60000);
+</script>
+</body>
+</html>
