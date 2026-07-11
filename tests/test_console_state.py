@@ -4,8 +4,26 @@ from alpha.console import state
 def test_build_state_has_all_panels():
     s = state.build_state()
     for key in ("as_of", "system", "coverage", "cost_hurdle", "drawdown",
-                "ledger", "promotion", "verdict", "study_pipeline"):
+                "ledger", "promotion", "verdict", "scalp", "study_pipeline"):
         assert key in s, f"missing panel {key}"
+
+
+def test_tier_display_convention():
+    assert state._tier(80.0) == "FAVORABLE"
+    assert state._tier(66.7) == "FAVORABLE"      # inclusive, family convention
+    assert state._tier(50.0) == "NEUTRAL"
+    assert state._tier(10.0) == "UNFAVORABLE"
+
+
+def test_scalp_environment_is_licensed_and_shaped():
+    # ledger/H003 is GO in this repo -> the rating block must be live
+    sc = state.scalp_environment()
+    assert sc["licensed"] is True
+    if sc.get("ready"):
+        assert sc["tier"] in ("FAVORABLE", "NEUTRAL", "UNFAVORABLE")
+        assert 0 <= sc["wi_pctile_252"] <= 100
+        assert -1 <= sc["wi"] <= 1
+        assert sc["next_session"] is not None
 
 
 def test_verdict_defaults_to_stand_down():

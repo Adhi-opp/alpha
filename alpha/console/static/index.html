@@ -139,8 +139,8 @@
 </head>
 <body>
   <div class="banner">
-    <b>LIVE</b> · this desk reads your real data. Panels tagged
-    <i>illustrative</i> (regime read, example ticket) await the study that fills them.
+    <b>LIVE</b> · this desk reads your real data. The scalp-environment rating
+    is live (H‑003 GO); only the <i>example ticket</i> remains illustrative.
   </div>
 
   <div class="rail">
@@ -172,13 +172,13 @@
 
   <div class="grid two">
     <div class="card">
-      <h3>Regime read <span class="eyebrow">T‑1 · conditioning</span></h3>
-      <p class="note">Retail index-option writing intensity (NSE participant OI). Conditions the odds — not itself a signal. <i>Illustrative until H‑001r runs.</i></p>
-      <div class="terc"><i>LIGHT</i><i class="on">MODERATE</i><i>HEAVY</i></div>
-      <div class="readline"><span class="big" style="color:var(--accent-deep)">Tercile 2 / 3</span>
-        <span class="note" style="margin:0">no strong trend-day tilt</span></div>
+      <h3>Scalp environment <span class="eyebrow">H‑003 · live</span></h3>
+      <p class="note" id="sc-note">Retail writing intensity (T‑1 participant OI) vs its trailing 252 files. Rates EXPIRY sessions only — the effect is expiry‑specific. Not a trade signal.</p>
+      <div class="terc" id="sc-terc"><i>UNFAVORABLE</i><i>NEUTRAL</i><i>FAVORABLE</i></div>
+      <div class="readline"><span class="big" style="color:var(--accent-deep)" id="sc-read">—</span>
+        <span class="note" style="margin:0" id="sc-sub">—</span></div>
       <hr class="hr">
-      <p class="note">Mechanism when it fires: heavier retail writing → writers capitulate into moves → trendier next session (H‑001).</p>
+      <p class="note" id="sc-foot">Mechanism: heavier retail writing → richer above‑cost premium oscillation on expiry day (partial ρ +0.29, CI [+0.12, +0.50]). Promotion pending the forward owner log.</p>
     </div>
     <div class="card">
       <h3>Cost hurdle <span class="eyebrow">live · from your notes</span></h3>
@@ -262,6 +262,25 @@ async function refresh(){
     $("v-cand").textContent = v.nearest.candidate;
     $("v-p").textContent = v.nearest.p == null ? "study not yet run"
       : v.nearest.p + " vs need ≥ " + v.nearest.threshold;
+  }
+
+  const sc = s.scalp || {};
+  if (sc.licensed && sc.ready){
+    const tiers = ["UNFAVORABLE","NEUTRAL","FAVORABLE"];
+    [...document.querySelectorAll("#sc-terc>i")].forEach((el,i)=>
+      el.classList.toggle("on", tiers[i] === sc.tier));
+    $("sc-read").textContent = sc.tier + " · " + sc.wi_pctile_252 + "th pctile";
+    $("sc-sub").textContent = sc.next_is_expiry
+      ? "next session " + sc.next_session + " IS a NIFTY expiry — rating applies"
+      : "next session " + sc.next_session + " is not an expiry — rating silent";
+    $("sc-note").textContent = "wi(T−1) = " + sc.wi + " from " + sc.cond_date +
+      " file, vs trailing 252. Rates EXPIRY sessions only. Not a trade signal.";
+  } else if (sc.licensed){
+    $("sc-read").textContent = "NOT READY";
+    $("sc-sub").textContent = sc.reason || "conditioning file stale — run the daily fetch";
+  } else {
+    $("sc-read").textContent = "NOT LICENSED";
+    $("sc-sub").textContent = "H-003 is not GO in the ledger";
   }
 
   $("hurdle-body").innerHTML = s.cost_hurdle.map(r =>

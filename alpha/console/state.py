@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -109,6 +109,76 @@ def ledger() -> dict:
     }
 
 
+def _tier(pctile: float) -> str:
+    """Display convention only (family's trailing 66.7/33.3 split). The
+    forward-log promotion test pre-registers its OWN split before grading;
+    the log stores the raw percentile, never just the tier."""
+    if pctile >= 66.7:
+        return "FAVORABLE"
+    if pctile < 33.3:
+        return "UNFAVORABLE"
+    return "NEUTRAL"
+
+
+def _next_session_expiry() -> tuple[str | None, bool | None]:
+    """Next weekday after the latest bhav session, and whether it is the
+    front-week NIFTY expiry. Holiday shifts make 'next weekday' approximate;
+    the next morning's fetch corrects it."""
+    files = sorted((DERIVED_ROOT / "fo_bhavcopy").glob("*.parquet"))
+    if not files:
+        return None, None
+    b = pd.read_parquet(files[-1],
+                        columns=["trade_date", "symbol", "instrument", "expiry"])
+    b = b[(b["symbol"] == "NIFTY") & (b["instrument"] == "IDO")]
+    if b.empty:
+        return None, None
+    last_td = b["trade_date"].max()
+    nxt = last_td + pd.Timedelta(days=1)
+    while nxt.weekday() >= 5:
+        nxt += pd.Timedelta(days=1)
+    expiries = pd.to_datetime(b.loc[b["trade_date"] == last_td, "expiry"])
+    future = expiries[expiries >= nxt]
+    fw = future.min() if len(future) else None
+    return str(nxt.date()), bool(fw == nxt) if fw is not None else None
+
+
+def scalp_environment() -> dict:
+    """H-003 (GO) licenses exactly one verdict: rate the NEXT NIFTY session
+    from the freshest T-1 participant file. The effect is EXPIRY-SPECIFIC
+    (non-expiry contrast −0.14), so the rating only speaks on expiry
+    sessions. Association GO — no ticket, no sizing; promotion pending the
+    forward owner log."""
+    if (_ledger_status("H003") or "") != "GO":
+        return {"licensed": False}
+    from alpha.data import pit
+    from alpha.study.h001r import client_write_intensity
+    try:
+        poi = pit.load("participant_oi", datetime.now(timezone.utc))
+    except (FileNotFoundError, ValueError):
+        return {"licensed": True, "ready": False, "reason": "no participant data"}
+    if poi.empty:
+        return {"licensed": True, "ready": False, "reason": "no participant data"}
+    wi = client_write_intensity(poi)
+    tail = wi["wi"].tail(252)
+    latest = float(tail.iloc[-1])
+    pctile = round(float((tail <= latest).mean() * 100), 1)
+    cond_date = wi["trade_date"].iloc[-1]
+    stale_days = (datetime.now(IST).date() - cond_date.date()).days
+    nxt, is_expiry = _next_session_expiry()
+    return {
+        "licensed": True,
+        "ready": stale_days <= 4,
+        "cond_date": str(cond_date.date()),
+        "wi": round(latest, 4),
+        "wi_pctile_252": pctile,
+        "tier": _tier(pctile),
+        "next_session": nxt,
+        "next_is_expiry": is_expiry,
+        "note": "H-003 GO · association only — rates expiry sessions, "
+                "licenses no ticket; promotion pending forward owner log",
+    }
+
+
 def promotion_gate() -> dict:
     # 7 fixed conditions (ARCHITECTURE.md §7). None met until a study runs.
     return {"met": 0, "total": 7, "paper_tickets": 0, "paper_target": 40}
@@ -123,10 +193,12 @@ def verdict(dd: dict) -> dict:
     return {
         "state": "STAND_DOWN",
         "headline": "Stand down.",
-        "detail": "No calibrated edge cleared the cost hurdle today. Not trading "
-                  "is the position — and on most days, this is what a working desk looks like.",
-        "nearest": {"candidate": "H-001b · overnight long premium",
-                    "p": None, "threshold": None, "note": "study not yet run"},
+        "detail": "No study is promoted to tickets. H-003's day rating (right) "
+                  "is live for expiry sessions — it rates the environment for "
+                  "YOUR manual scalping; it is not itself a trade signal.",
+        "nearest": {"candidate": "H-003 · expiry scalp environment",
+                    "p": None, "threshold": None,
+                    "note": "GO (association) — promotion needs the forward owner log"},
     }
 
 
@@ -141,6 +213,7 @@ def build_state() -> dict:
         "ledger": ledger(),
         "promotion": promotion_gate(),
         "verdict": verdict(dd),
+        "scalp": scalp_environment(),
         "study_pipeline": [
             {"id": "H-001r", "label": "re-validate edge",
              "status": _ledger_status("H001r") or "PRE-REG PENDING"},
@@ -148,5 +221,7 @@ def build_state() -> dict:
              "status": _ledger_status("H001b") or "QUEUED"},
             {"id": "H-002", "label": "intraday trigger",
              "status": _ledger_status("H002") or "FALLBACK"},
+            {"id": "H-003", "label": "expiry day rating",
+             "status": _ledger_status("H003") or "QUEUED"},
         ],
     }
