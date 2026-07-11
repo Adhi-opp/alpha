@@ -1,0 +1,92 @@
+{
+  "study": "H-002",
+  "n_days": 248,
+  "n_top": 173,
+  "n_bottom": 75,
+  "sample": [
+    "2024-07-12",
+    "2026-01-07"
+  ],
+  "primary": {
+    "mean_ev_rs": -382.126997241942,
+    "ci": [
+      -769.4396270327676,
+      -24.72811714640004
+    ],
+    "p": 0.07748062984253937
+  },
+  "stress_ev_rs": -453.39558225951623,
+  "differential": {
+    "top_minus_bottom_rs": 1485.9488365855445,
+    "ci": [
+      851.8862474618212,
+      2136.7304513563727
+    ]
+  },
+  "split_half": [
+    -321.0164852701351,
+    -442.53508953591194
+  ],
+  "trigger": {
+    "untriggered_top": 1,
+    "untriggered_bottom": 0,
+    "entry_adverse_hit_rate": 0.28552309572601614,
+    "trigger_bar_q25_q50_q75": [
+      30.0,
+      30.0,
+      31.0
+    ]
+  },
+  "fill": {
+    "fill_rate": 0.9939884393063584,
+    "no_fill_rate": 0.006011560693641619,
+    "dropped_days": [],
+    "mean_trunc_frac": 0.0
+  },
+  "secondary": {
+    "expiry_day_ev": 1328.3414038034034,
+    "non_expiry_ev": -671.0574703914934,
+    "n_expiry_days": 25,
+    "focused_desk_ev": -439.8140282012327,
+    "bottom_book_ev": -1868.0758338274866,
+    "per_leg": {
+      "ce_pnl": 260.5063442197748,
+      "pe_pnl": -517.9962171137014
+    }
+  },
+  "attribution_rs_per_ticket": {
+    "gross_move_ex_friction": -84.06791907514447,
+    "latency_drag": 62.45814240218596,
+    "adverse_drag": -164.10497433581165,
+    "spread_drag": -71.77512188515803,
+    "statutory": -128.24482447554362
+  },
+  "gates": [
+    {
+      "name": "primary_ev_ci",
+      "passed": false,
+      "detail": "mean net -382 Rs/ticket, 90% CI [-769, -25]"
+    },
+    {
+      "name": "stress_spread",
+      "passed": false,
+      "detail": "EV at 0.50% half-spread -453 Rs"
+    },
+    {
+      "name": "conditioning_diff",
+      "passed": true,
+      "detail": "top-bottom +1486 Rs, CI [+852, +2137]"
+    },
+    {
+      "name": "bh_deflated_p",
+      "passed": false,
+      "detail": "p=0.07748 vs threshold 0.01250"
+    },
+    {
+      "name": "split_half_sign",
+      "passed": true,
+      "detail": "halves -321 / -443 Rs"
+    }
+  ],
+  "verdict": "INVERTED"
+}

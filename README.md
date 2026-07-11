@@ -113,3 +113,13 @@ Phase 4  risk/ paper/ sizing tickets, drawdown ledger, kill-switch, nightly
   adverse fills −₹560 were the killer; expiry-day secondary +₹924 (n=25) is
   H-002's design input). 114 tests green. The truth machine paid for itself
   today: one GO, one honest kill, zero rupees risked.
+- 2026-07-11 — **H-002 ran: INVERTED** (calm-bar entry, family m=8). The
+  redesign delivered its mechanical promise — entry adverse-hit rate
+  100%→28.6%, adverse drag −₹560→−₹164, loss halved to −₹382/ticket
+  (CI [−769, −25]) — and the conditioning differential passed AGAIN
+  (+₹1,486, CI [+852, +2137]). Diagnosis after two independent expressions:
+  the all-day ATM straddle's theta eats the entire (real) edge on
+  non-expiry days; frictionless gross is −₹84. Both studies' expiry-day
+  secondaries point the same way (+₹924, +₹1,328 on the same 25 days —
+  generator, not evidence). Next registration: H-003 expiry-day-only
+  (m=9, BH bar 0.0111). 119 tests green. Holdout still locked.

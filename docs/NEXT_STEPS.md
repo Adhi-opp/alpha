@@ -148,11 +148,23 @@ adverse fills −₹560 were the killer). Runner: `scripts/run_study.py
 successor registrations, each a NEW ledger entry (family m grows — the BH
 bar tightens honestly):
 
-1. **H-002 intraday-trigger expression** — same conditioning, entry after
-   bar 30 in a calm bar (defuses the −₹560 volatile-open adverse rule).
-   Design input: ledger/H001b Results attribution.
-2. **Expiry-day-only long premium** — the +₹924 (n=25) H001b secondary is
-   a hypothesis generator, NOT evidence. Needs its own pre-reg.
+1. ~~H-002 intraday-trigger expression~~ — RAN 2026-07-11: **INVERTED**.
+   The fix worked (adverse 100%→28.6%, loss halved to −₹382) but the
+   all-day straddle's theta eats the (again-confirmed) +₹1,486
+   differential on non-expiry days. See ledger/H002.
+2. **H-003 expiry-day-only long premium** — NOW the front of the queue:
+   both H001b (+₹924) and H002 (+₹1,328) secondaries point at the same 25
+   expiry days (same days, two entry rules — a generator, not evidence).
+   Registration must decide: entry rule (calm-bar per H002 seems right),
+   sample thinness handling (only ~50 expiry days per year), and whether
+   the 90% CI gate is even reachable at that n — if not, pre-register a
+   longer accumulation or a widened decision rule honestly. Family m=9,
+   BH bar 0.0111.
+3. If H-003 dies, the H001 conditioning branch is exhausted at
+   buyer-expressible level: return to docs/CANDIDATES.md for the next
+   family. In parallel regardless: real half-spreads from GammaLeak
+   `.depth.csv` (the 0.25% estimate is the weakest input), latency logging
+   once anything reaches paper.
 
 Do not touch the holdout (≥ 2026-01-09) for any of these.
 
