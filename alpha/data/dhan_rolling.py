@@ -63,10 +63,17 @@ def _relpath(job: dict, symbol: str = "NIFTY") -> str:
             f"{offset_str(job['offset'])}/{job['start']:%Y%m%d}_{job['end']:%Y%m%d}.json")
 
 
+#: SENSEX: Dhan's own INDEX-row id, verified live 2026-07-11 (BSE_FNO,
+#: 375 candles/session). The options rows' UNDERLYING_SECURITY_ID "1" is
+#: the same silent HTTP-200-empty trap NIFTY's 26000 was.
+SENSEX_UNDERLYING_ID = "51"
+
+
 def fetch_job(job: dict, token: str, client_id: str,
-              security_id: str = NIFTY_UNDERLYING_ID) -> dict:
+              security_id: str = NIFTY_UNDERLYING_ID,
+              exchange_segment: str = "NSE_FNO") -> dict:
     body = {
-        "exchangeSegment": "NSE_FNO",
+        "exchangeSegment": exchange_segment,
         "interval": 1,
         "securityId": security_id,
         "instrument": "OPTIDX",
@@ -86,7 +93,9 @@ def fetch_job(job: dict, token: str, client_id: str,
 
 
 def execute_pull(plan: list[dict], token: str, client_id: str,
-                 symbol: str = "NIFTY", root: Path | None = None) -> dict:
+                 symbol: str = "NIFTY", root: Path | None = None,
+                 security_id: str = NIFTY_UNDERLYING_ID,
+                 exchange_segment: str = "NSE_FNO") -> dict:
     """Archive every raw response. Resumable: archived jobs are skipped."""
     done = skipped = empty = 0
     for job in plan:
@@ -94,7 +103,8 @@ def execute_pull(plan: list[dict], token: str, client_id: str,
         if archive.is_archived(SOURCE, rel, root):
             skipped += 1
             continue
-        payload = fetch_job(job, token, client_id)
+        payload = fetch_job(job, token, client_id, security_id,
+                            exchange_segment)
         side_key = "ce" if job["side"] == "CALL" else "pe"
         n = len(((payload.get("data") or {}).get(side_key) or {}).get("close") or [])
         if n == 0:

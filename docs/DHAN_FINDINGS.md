@@ -80,6 +80,21 @@ implied. Widen offsets to ±5 only if a study needs the wings.
 - Client: `alpha/data/dhan_rolling.py`; pull: `scripts/dhan_pull_rolling.py`
   (~1,554 calls, resumable). Rate limit still undocumented — 0.5 s/req held.
 
+## SENSEX / BSE — VERIFIED LIVE 2026-07-11
+
+- **securityId = "51"** (Dhan's own INDEX row for SENSEX),
+  **exchangeSegment = "BSE_FNO"**. The options rows' UNDERLYING_SECURITY_ID
+  ("1") is the SAME silent trap as NIFTY's 26000: HTTP 200 + empty arrays.
+- Verified: 375 candles/session, ATM strike tracks spot (76600 vs 76587.55),
+  weekly expiryFlag works, lot 20 (from master).
+- Pull: `scripts/dhan_pull_rolling.py --symbol sensex` (then `--tidy`) →
+  `derived/dhan_rolling_1m_sensex/`.
+- **CAVEAT: single-source.** No BSE bhavcopy layer exists, so SENSEX
+  premiums have no independent cross-check. Certified for owner-log MAE
+  diagnostics ONLY; any pre-registered SENSEX study first needs a BSE
+  bhavcopy ingest + census (the NIFTY census's close-definition lesson
+  will apply there too).
+
 ## Cost model note (measured from the same session's contract notes)
 
 BSE SENSEX options charge a different exchange transaction rate (0.0325%) than

@@ -124,34 +124,48 @@ def session_ratings(sessions: pd.DataFrame, asof: datetime | None = None,
     return sessions.merge(pd.DataFrame(rows), on="session_date")
 
 
+#: symbol -> tidy premium dataset. SENSEX is single-source (Dhan only — no
+#: BSE bhavcopy layer exists to cross-check): fine for MAE diagnostics,
+#: NOT census-certified for studies.
+MAE_DATASETS = {"NIFTY": "dhan_rolling_1m", "SENSEX": "dhan_rolling_1m_sensex"}
+
+
 def attach_mae(trades: pd.DataFrame, asof: datetime | None = None,
                root: Path | None = None) -> pd.DataFrame:
     """MAE per trade from our own 1-min premium closes between the note's
-    entry and exit timestamps. NaN (with reason) where no coverage — SENSEX
-    until a BSE pull exists, NIFTY dates past the current Dhan pull."""
+    entry and exit timestamps. NaN (with reason) wherever coverage is
+    missing — never guessed."""
     asof = asof or datetime.now(timezone.utc)
     out = trades.copy()
     out["mae_pct"] = np.nan
     out["mae_reason"] = "no premium data coverage"
-    try:
-        tidy = pit.load("dhan_rolling_1m", asof, root=root,
-                        columns=["ts", "side", "strike", "close",
-                                 "trade_date", "available_at"])
-    except FileNotFoundError:
-        return _flag(out)
-    covered = set(tidy["trade_date"].unique())
+    tidys = {}
+    for sym, dataset in MAE_DATASETS.items():
+        try:
+            tidys[sym] = pit.load(dataset, asof, root=root,
+                                  columns=["ts", "side", "strike", "close",
+                                           "trade_date", "available_at"])
+        except FileNotFoundError:
+            continue
     for i, t in out.iterrows():
-        if t["symbol"] != "NIFTY" or t["session_date"] not in covered:
+        tidy = tidys.get(t["symbol"])
+        if tidy is None or t["session_date"] not in set(tidy["trade_date"].unique()):
             continue
         day = tidy[(tidy["trade_date"] == t["session_date"])
                    & (tidy["strike"] == t["strike"])
                    & (tidy["side"] == t["side"])]
-        window = day[(day["ts"] >= t["entry_ts"]) & (day["ts"] <= t["exit_ts"])]
+        # bars are stamped at minute START: floor the entry so a sub-minute
+        # hold still sees the bar it lived inside
+        window = day[(day["ts"] >= t["entry_ts"].floor("min"))
+                     & (day["ts"] <= t["exit_ts"])]
         if window.empty:
             out.loc[i, "mae_reason"] = "no bars inside hold window"
             continue
         worst = float(window["close"].min())
-        out.loc[i, "mae_pct"] = (worst - t["entry_wap"]) / t["entry_wap"]
+        # adverse excursion is never positive; closes above entry for the
+        # whole hold = no adverse excursion VISIBLE at 1-min granularity
+        # (sub-minute wicks are invisible — a measurement floor, disclosed)
+        out.loc[i, "mae_pct"] = min(0.0, (worst - t["entry_wap"]) / t["entry_wap"])
         out.loc[i, "mae_reason"] = ""
     return _flag(out)
 

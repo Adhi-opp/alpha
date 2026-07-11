@@ -48,7 +48,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from alpha.config import DERIVED_ROOT, IST
 from alpha.data import pit
 
-PULL_START, PULL_END = "2023-07-01", "2026-07-06"
+PULL_START, PULL_END = "2023-07-01", "2026-07-10"
 TIDY_COLS = ["ts", "side", "strike", "close", "high", "low", "oi", "iv",
              "spot", "volume", "trade_date"]
 

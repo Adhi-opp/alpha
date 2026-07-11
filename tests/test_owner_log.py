@@ -88,11 +88,26 @@ def test_attach_mae_synthetic(tmp_path):
     # green trade, but the hold breached -30%: undisciplined-and-lucky
     assert out["discipline_flag"].iloc[0] == True  # noqa: E712
 
+    # sub-minute hold INSIDE one bar: entry bar floored in, clip at zero
+    sub = trades.assign(
+        entry_ts=ts[5] + pd.Timedelta(seconds=10),
+        exit_ts=ts[5] + pd.Timedelta(seconds=45))
+    out2 = owner_log.attach_mae(
+        sub, asof=datetime(2026, 7, 12, tzinfo=timezone.utc), root=tmp_path)
+    assert out2["mae_pct"].iloc[0] == pytest.approx(-0.10)  # bar close 90
+    sub3 = trades.assign(entry_wap=80.0,
+                         entry_ts=ts[5] + pd.Timedelta(seconds=10),
+                         exit_ts=ts[5] + pd.Timedelta(seconds=45))
+    out3 = owner_log.attach_mae(
+        sub3, asof=datetime(2026, 7, 12, tzinfo=timezone.utc), root=tmp_path)
+    assert out3["mae_pct"].iloc[0] == 0.0    # closes never below entry -> 0
 
-def test_attach_mae_no_coverage_stays_null():
+
+def test_attach_mae_no_coverage_stays_null(tmp_path):
+    # an empty derived root = zero coverage -> every MAE stays null, flagged
     _, trades = owner_log.load_journal()
     out = owner_log.attach_mae(
-        trades, asof=datetime(2026, 7, 11, tzinfo=timezone.utc))
-    # tidy premium data ends 2026-07-06; all July trades are later or BSE
+        trades, asof=datetime(2026, 7, 11, tzinfo=timezone.utc), root=tmp_path)
     assert out["mae_pct"].isna().all()
     assert out["discipline_flag"].isna().all()
+    assert (out["mae_reason"] == "no premium data coverage").all()
