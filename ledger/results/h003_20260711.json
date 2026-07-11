@@ -1,0 +1,52 @@
+{
+  "study": "H-003",
+  "n_days": 78,
+  "n_nonexpiry_contrast": 293,
+  "sample": [
+    "2024-07-11",
+    "2026-01-06"
+  ],
+  "primary": {
+    "partial_spearman": 0.28734297525968727,
+    "ci": [
+      0.11812199460891633,
+      0.5010242597317113
+    ],
+    "p": 0.00849787553111722
+  },
+  "split_half": [
+    0.2567104991129665,
+    0.3494030052107437
+  ],
+  "secondary": {
+    "raw_spearman": 0.2759645417873266,
+    "tercile_diff_Y": 2.4654846250549722,
+    "nonexpiry_partial_spearman": -0.14424339418479468,
+    "Y_lag1_autocorr": 0.3141332351858668,
+    "Y_median_expiry": 7.780637378525027,
+    "Y_median_nonexpiry": 3.0179386151998275
+  },
+  "excluded_days": [
+    "2024-11-01",
+    "2025-05-15",
+    "2025-10-21"
+  ],
+  "gates": [
+    {
+      "name": "partial_rho_ci",
+      "passed": true,
+      "detail": "partial Spearman +0.2873, 90% CI [+0.1181, +0.5010]"
+    },
+    {
+      "name": "bh_deflated_p",
+      "passed": true,
+      "detail": "p=0.00850 vs threshold 0.01111"
+    },
+    {
+      "name": "split_half_sign",
+      "passed": true,
+      "detail": "halves +0.2567 / +0.3494"
+    }
+  ],
+  "verdict": "GO"
+}

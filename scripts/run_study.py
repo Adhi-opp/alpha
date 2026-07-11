@@ -34,6 +34,10 @@ STUDIES = {
         "ledger": PROJECT_ROOT / "ledger" / "H002-intraday-calm-entry.md",
         "run": lambda: __import__("alpha.study.h002", fromlist=["run"]).run(),
     },
+    "h003": {
+        "ledger": PROJECT_ROOT / "ledger" / "H003-expiry-scalp-environment.md",
+        "run": lambda: __import__("alpha.study.h003", fromlist=["run"]).run(),
+    },
 }
 
 _TOP_KEYS = ("study", "n_days", "sample", "gates", "verdict")

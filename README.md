@@ -113,6 +113,19 @@ Phase 4  risk/ paper/ sizing tickets, drawdown ledger, kill-switch, nightly
   adverse fills −₹560 were the killer; expiry-day secondary +₹924 (n=25) is
   H-002's design input). 114 tests green. The truth machine paid for itself
   today: one GO, one honest kill, zero rupees risked.
+- 2026-07-11 (later) — **H-003 ran: GO** (family m=9, 124 tests). Reframed
+  after studying the owner's REAL contract notes (sub-minute discretionary
+  expiry scalps that no 95 s alert-latency simulation can represent): the
+  tool rates the DAY, the human keeps the execution. Outcome = per-leg ATM
+  premium path length ABOVE the measured cost hurdle (breakeven_move +
+  spread crossings — zero tuned constants). Heavy retail writing → richer
+  expiry-day scalp energy: partial Spearman +0.287, 90% MBB CI
+  [+0.118, +0.501], p=0.0085, halves +0.26/+0.35, n=78 expiry sessions.
+  Non-expiry contrast −0.14: the effect is expiry-SPECIFIC. Expiry days
+  carry 2.6× the hurdle-adjusted energy of ordinary days. Association GO
+  only — licenses a "favorable scalp environment" console verdict, not a
+  ticket; promotion = locked-holdout replication + ≥40-session forward
+  owner-P&L log (schema in NEXT_STEPS §7, incl. MAE-based discipline flag).
 - 2026-07-11 — **H-002 ran: INVERTED** (calm-bar entry, family m=8). The
   redesign delivered its mechanical promise — entry adverse-hit rate
   100%→28.6%, adverse drag −₹560→−₹164, loss halved to −₹382/ticket

@@ -152,14 +152,14 @@ bar tightens honestly):
    The fix worked (adverse 100%→28.6%, loss halved to −₹382) but the
    all-day straddle's theta eats the (again-confirmed) +₹1,486
    differential on non-expiry days. See ledger/H002.
-2. **H-003 expiry-day-only long premium** — NOW the front of the queue:
-   both H001b (+₹924) and H002 (+₹1,328) secondaries point at the same 25
-   expiry days (same days, two entry rules — a generator, not evidence).
-   Registration must decide: entry rule (calm-bar per H002 seems right),
-   sample thinness handling (only ~50 expiry days per year), and whether
-   the 90% CI gate is even reachable at that n — if not, pre-register a
-   longer accumulation or a widened decision rule honestly. Family m=9,
-   BH bar 0.0111.
+2. ~~H-003~~ — RAN 2026-07-11: **GO** (reframed as the expiry-day
+   scalp-environment association after the owner's contract notes showed
+   his real edge is sub-minute discretionary scalping; continuous wi, no
+   buckets, hurdle-adjusted energy outcome, zero tuned constants). Partial
+   Spearman +0.287 CI [+0.118, +0.501], p=0.0085, n=78; expiry-specific
+   (non-expiry contrast −0.14). See ledger/H003. Next: console verdict
+   wiring + the forward owner log (§7 below) — that log, not another
+   backtest, is the promotion instrument.
 3. If H-003 dies, the H001 conditioning branch is exhausted at
    buyer-expressible level: return to docs/CANDIDATES.md for the next
    family. In parallel regardless: real half-spreads from GammaLeak
@@ -167,6 +167,33 @@ bar tightens honestly):
    once anything reaches paper.
 
 Do not touch the holdout (≥ 2026-01-09) for any of these.
+
+## 7. The forward owner-log (the real promotion instrument)
+
+H-003 (if GO) licenses a day-rating verdict; the JOINT system — signal +
+the owner's manual scalping — is validated only by a forward log, never a
+backtest (his sub-minute discretionary round trips are unsimulatable under
+the 95 s alert model; see ledger/H003 design notes). Build after the H-003
+verdict:
+
+- **Dataset `owner_log`** (PIT-appended): one row per manual round trip —
+  session_date, system_rating (favorable/unfavorable, stamped BEFORE open
+  from the T−1 participant file), instrument, strike, side, qty, entry_ts,
+  exit_ts, entry_px, exit_px, realized_net_pnl (from contract note),
+  hold_s, **MAE** (worst premium mark while held — computable from our own
+  1-min data joined on the contract-note timestamps), and
+  **discipline_flag**: MAE ≤ −30% of entry premium while held ⇒ flagged
+  "undisciplined hold that got lucky" EVEN IF the trade closed green.
+  Day-level: realized day P&L vs the ₹5–6k kill-switch.
+- **Promotion test (pre-register before ≥ 40 sessions accumulate):** owner
+  day-P&L on favorable-rated expiry sessions vs unfavorable, MBB CI —
+  ARCHITECTURE §7 adapted to human execution.
+- **Prerequisites:** (a) restart the daily NSE fetch — PIT store currently
+  ends 2026-07-06; (b) SENSEX/BSE rolling pull (his best sessions are BSE
+  Thursday expiries; cost model already has measured BSE rates; Dhan
+  rolling client needs the SENSEX underlying id + BSE_FNO segment probe);
+  (c) parse contract-note annexures (timestamps are exact) — the six
+  2026-07 notes seed the log retroactively, including MAE.
 
 ## Standing rules (apply to every step above)
 
