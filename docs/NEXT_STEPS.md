@@ -185,9 +185,14 @@ verdict:
   **discipline_flag**: MAE ≤ −30% of entry premium while held ⇒ flagged
   "undisciplined hold that got lucky" EVEN IF the trade closed green.
   Day-level: realized day P&L vs the ₹5–6k kill-switch.
-- **Promotion test (pre-register before ≥ 40 sessions accumulate):** owner
-  day-P&L on favorable-rated expiry sessions vs unfavorable, MBB CI —
-  ARCHITECTURE §7 adapted to human execution.
+- **Promotion test — REGISTERED 2026-07-12 as [[H004]]** (ledger/
+  H004-forward-owner-log.md, frozen b2b93d98 before the first rated
+  session): Spearman(pre-open rating, day net P&L) over the first 40
+  forward NIFTY-expiry sessions, abstention = 0, MBB block 5 seed 53;
+  gates = CI>0 + BH p ≤ 0.0100 (m=10) + discipline sign-integrity + zero
+  ₹6k kill-switch breaches + H003 holdout replication. Single look —
+  `alpha/study/h004.py` refuses to run before 40 sessions; deadline
+  2027-12-31 or NO-GO. A NO-GO retires the console verdict (H003 → STALE).
 - **Prerequisites:** (a) restart the daily NSE fetch — PIT store currently
   ends 2026-07-06; (b) SENSEX/BSE rolling pull (his best sessions are BSE
   Thursday expiries; cost model already has measured BSE rates; Dhan
