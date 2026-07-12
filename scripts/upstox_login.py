@@ -1,7 +1,8 @@
-r"""Daily Upstox OAuth login -> fresh UPSTOX_ACCESS_TOKEN in .env.
+r"""Upstox OAuth login -> fresh UPSTOX_ACCESS_TOKEN in .env.
 
-Upstox access tokens die every morning (~03:30 IST), so run this once each
-trading morning before any live capture:
+Owner reports ~1-year token validity on the dedicated "alpha" app (the old
+daily ~03:30 IST expiry no longer applies) — so this runs once at setup and
+then only when a token actually dies. If the probe ever fails auth, rerun:
 
   d:\alpha\.venv\Scripts\python scripts\upstox_login.py
 
