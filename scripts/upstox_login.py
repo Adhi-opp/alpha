@@ -1,0 +1,100 @@
+r"""Daily Upstox OAuth login -> fresh UPSTOX_ACCESS_TOKEN in .env.
+
+Upstox access tokens die every morning (~03:30 IST), so run this once each
+trading morning before any live capture:
+
+  d:\alpha\.venv\Scripts\python scripts\upstox_login.py
+
+Reads UPSTOX_API_KEY / UPSTOX_API_SECRET / UPSTOX_REDIRECT_URI from
+d:\alpha\.env, falling back to d:\GammaLeak\.env (same machine, same owner —
+values are never printed or committed). Opens the login URL, you approve and
+paste back the `code=` from the redirect, and the fresh token is written to
+d:\alpha\.env in place.
+"""
+from __future__ import annotations
+
+import sys
+import webbrowser
+from pathlib import Path
+from urllib.parse import parse_qs, quote, urlparse
+
+import requests
+
+ROOT = Path(__file__).resolve().parents[1]
+ENV_PATHS = [ROOT / ".env", Path(r"d:\GammaLeak\.env")]
+AUTH_URL = "https://api.upstox.com/v2/login/authorization/dialog"
+TOKEN_URL = "https://api.upstox.com/v2/login/authorization/token"
+
+
+def read_env(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    out = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, _, v = line.partition("=")
+            out[k.strip()] = v.strip().strip('"').strip("'")
+    return out
+
+
+def credential(name: str) -> str:
+    for p in ENV_PATHS:
+        v = read_env(p).get(name, "")
+        if v and "your_" not in v:
+            return v
+    sys.exit(f"{name} not found in any of: "
+             + ", ".join(str(p) for p in ENV_PATHS))
+
+
+def write_token(env_path: Path, token: str) -> None:
+    lines = (env_path.read_text(encoding="utf-8").splitlines()
+             if env_path.exists() else [])
+    key = "UPSTOX_ACCESS_TOKEN"
+    replaced = False
+    for i, line in enumerate(lines):
+        if line.strip().startswith(f"{key}="):
+            lines[i] = f"{key}={token}"
+            replaced = True
+    if not replaced:
+        lines.append(f"{key}={token}")
+    env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def main() -> int:
+    api_key = credential("UPSTOX_API_KEY")
+    api_secret = credential("UPSTOX_API_SECRET")
+    redirect = credential("UPSTOX_REDIRECT_URI")
+
+    url = (f"{AUTH_URL}?client_id={quote(api_key, safe='')}"
+           f"&redirect_uri={quote(redirect, safe='')}"
+           f"&response_type=code&scope=default")
+    print("1. Approving in the browser (URL also printed below):\n")
+    print(url + "\n")
+    webbrowser.open(url)
+    pasted = input("2. Paste the FULL redirect URL (or just the code): ").strip()
+    if "code=" in pasted:
+        code = parse_qs(urlparse(pasted).query).get("code", [""])[0]
+    else:
+        code = pasted
+    if not code:
+        sys.exit("no authorization code found in the pasted value")
+
+    resp = requests.post(TOKEN_URL, data={
+        "code": code, "client_id": api_key, "client_secret": api_secret,
+        "redirect_uri": redirect, "grant_type": "authorization_code",
+    }, headers={"Accept": "application/json"}, timeout=30)
+    if resp.status_code != 200:
+        sys.exit(f"token exchange failed HTTP {resp.status_code}: "
+                 f"{resp.text[:300]}")
+    token = resp.json().get("access_token", "")
+    if not token:
+        sys.exit(f"no access_token in response: {resp.text[:300]}")
+    write_token(ROOT / ".env", token)
+    print("3. Fresh UPSTOX_ACCESS_TOKEN written to .env "
+          "(valid until ~03:30 IST tomorrow).")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

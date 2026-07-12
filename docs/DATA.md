@@ -5,6 +5,8 @@
 **Dhan: yes — free account now, one paid Data-API month later, then cancel.**
 **Upstox: keep, free tier only. Do not buy any Upstox paid tier for Alpha.**
 **No live tick infrastructure in Alpha at all.**
+*(the "no live tick infrastructure" line is AMENDED 2026-07-12 — see
+"Bounded live capture amendment" below; the rest of this decision stands)*
 
 Reasoning, so this doesn't get relitigated:
 
@@ -41,6 +43,31 @@ Reasoning, so this doesn't get relitigated:
 6. **Cancel.** Dhan auto-debits renewal from the trading ledger every 30
    days — set a calendar reminder AND keep the ledger empty after the pull
    so it cannot renew silently.
+
+## Bounded live capture amendment (owner-directed, 2026-07-12)
+
+The 2026-07-07 line "no live tick infrastructure in Alpha at all" existed to
+stop Alpha becoming GammaLeak. The owner has now explicitly directed a live
+observation layer (docs/LIVE_DESK.md), so the line is amended to a BOUNDED
+definition instead of a blanket ban:
+
+**Allowed:** session-scoped capture of the Upstox v3 websocket feed for a
+defined instrument set (index spot, front future, front-week option chain in
+a fixed strike band, both NIFTY/NSE_FO and SENSEX/BSE_FO), recorded
+append-only under `data/live/` with dual timestamps (exchange + local
+receipt). Purpose: measured half-spreads, latency, seconds-level MAE, and a
+descriptive in-session cockpit. Everything it shows is an instrument
+reading; verdicts still come only from the ledger.
+
+**Still excluded, permanently:** full-depth tick-by-tick order-book
+reconstruction, any order-routing or execution hook (execution is manual by
+constitution), any live feature becoming a trade rule without its own
+pre-registered ledger entry, and any paid Upstox tier.
+
+The live layer is firewalled: `alpha/live/` may import from `alpha/`, but
+nothing in `alpha/data`, `alpha/study`, or the ledger machinery may import
+from `alpha/live`. Live capture feeds studies only after it lands as a
+normal PIT dataset with a census.
 
 ## Source inventory
 
