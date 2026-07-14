@@ -4,10 +4,10 @@ The H001b pre-registration requires this census GREEN before the study runs.
 PASS thresholds are declared HERE, before any number is computed — a census
 whose bar moves after seeing the data is not a census:
 
-  A. Sessions — every NIFTY-option bhavcopy session inside the pull window
+  A. Sessions — every NIFTY-option bhavcopy session inside the tidy range
      must exist in tidy (0 missing).
   B. Bars — median minutes/session == 375 and P1 >= 370.
-  C. Strike grid — modal spacing == 50.
+  C. Strike grid — modal spacing == 50 (NIFTY) / 100 (SENSEX).
   D. Entry-strike exit coverage — the ATM-at-open strike has BOTH legs' bars
      somewhere in the 15:21..15:29 window on >= 99% of sessions (H001b's
      truncation exposure).
@@ -33,10 +33,21 @@ whose bar moves after seeing the data is not a census:
             consumes premium paths + spot, never candle OI.
   F. iv == 0 rows confined to expiry sessions (reported, not gated).
 
+The census window is DERIVED from the tidy data itself (min..max
+trade_date) and reported — never assumed from a hardcoded constant.
+
+SENSEX (`--symbol sensex`) runs the STRUCTURAL checks only (B, C, F +
+range report): no BSE bhavcopy layer exists, so there is no independent
+source for A/D/E. A structural GREEN certifies shape, NOT prices —
+single-source data stays owner-log-MAE-only; any SENSEX study first needs
+a BSE bhavcopy ingest + full census.
+
   d:\alpha\.venv\Scripts\python scripts\census_rolling.py
+  d:\alpha\.venv\Scripts\python scripts\census_rolling.py --symbol sensex
 """
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -48,13 +59,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from alpha.config import DERIVED_ROOT, IST
 from alpha.data import pit
 
-PULL_START, PULL_END = "2023-07-01", "2026-07-10"
 TIDY_COLS = ["ts", "side", "strike", "close", "high", "low", "oi", "iv",
              "spot", "volume", "trade_date"]
+DATASETS = {"nifty": "dhan_rolling_1m", "sensex": "dhan_rolling_1m_sensex"}
+STRIKE_STEP = {"nifty": 50.0, "sensex": 100.0}
 
 
-def load_tidy() -> pd.DataFrame:
-    files = sorted((DERIVED_ROOT / "dhan_rolling_1m").glob("*.parquet"))
+def load_tidy(dataset: str) -> pd.DataFrame:
+    files = sorted((DERIVED_ROOT / dataset).glob("*.parquet"))
     df = pd.concat([pd.read_parquet(f, columns=TIDY_COLS) for f in files],
                    ignore_index=True)
     df["minute"] = df["ts"].dt.tz_convert(IST).dt.strftime("%H:%M")
@@ -67,13 +79,60 @@ def front_week_expiry(bhav_opt: pd.DataFrame) -> pd.Series:
     return e.groupby("trade_date")["expiry"].min()
 
 
+def structural_checks(tidy: pd.DataFrame, modal_step: float
+                      ) -> list[tuple[str, bool, str]]:
+    checks: list[tuple[str, bool, str]] = []
+    per_day = tidy.groupby("trade_date")["ts"].nunique()
+    checks.append(("B bars/session",
+                   per_day.median() == 375 and np.percentile(per_day, 1) >= 370,
+                   f"median {per_day.median():.0f}, P1 {np.percentile(per_day, 1):.0f}, "
+                   f"min {per_day.min()} on {per_day.idxmin().date()}"))
+    strikes = np.sort(tidy["strike"].unique())
+    steps = pd.Series(np.diff(strikes))
+    modal = steps.mode().iloc[0]
+    checks.append(("C strike grid", modal == modal_step,
+                   f"modal step {modal}, unique strikes {len(strikes)}, "
+                   f"range {strikes.min():.0f}..{strikes.max():.0f}"))
+    return checks
+
+
 def main() -> int:
-    tidy = load_tidy()
-    bhav = pit.load_all_unsafe("fo_bhavcopy")
-    opt = bhav[(bhav["symbol"] == "NIFTY") & (bhav["instrument"] == "IDO")].copy()
-    opt = opt[(opt["trade_date"] >= PULL_START) & (opt["trade_date"] <= PULL_END)]
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--symbol", choices=sorted(DATASETS), default="nifty")
+    args = ap.parse_args()
+
+    tidy = load_tidy(DATASETS[args.symbol])
+    t_min = pd.Timestamp(tidy["trade_date"].min()).date()
+    t_max = pd.Timestamp(tidy["trade_date"].max()).date()
+    n_sessions = tidy["trade_date"].nunique()
+    print(f"tidy rows {len(tidy):,}; derived range {t_min}..{t_max} "
+          f"({n_sessions} sessions)\n")
 
     checks: list[tuple[str, bool, str]] = []
+
+    if args.symbol == "sensex":
+        # STRUCTURAL census only — single-source, no independent cross-check
+        checks += structural_checks(tidy, STRIKE_STEP["sensex"])
+        iv0 = tidy[tidy["iv"] == 0]
+        checks.append(("F iv=0 (info)", True,
+                       f"{len(iv0):,} rows over {iv0['trade_date'].nunique()} "
+                       f"sessions"))
+        all_pass = True
+        for name, ok, detail in checks:
+            flag = "INFO" if name.endswith("(info)") else (
+                "PASS" if ok else "FAIL")
+            if flag == "FAIL":
+                all_pass = False
+            print(f"[{flag}] {name:<16} {detail}")
+        print("\n[CAVEAT] single-source: STRUCTURAL census only — certifies "
+              "shape, not prices. Owner-log MAE use only; a SENSEX study "
+              "needs a BSE bhavcopy ingest + full census first.")
+        print(f"\nCENSUS (structural): {'GREEN' if all_pass else 'RED'}")
+        return 0 if all_pass else 1
+
+    bhav = pit.load_all_unsafe("fo_bhavcopy")
+    opt = bhav[(bhav["symbol"] == "NIFTY") & (bhav["instrument"] == "IDO")].copy()
+    opt = opt[(opt["trade_date"] >= str(t_min)) & (opt["trade_date"] <= str(t_max))]
 
     # A. session coverage -------------------------------------------------
     bhav_days = pd.Index(sorted(opt["trade_date"].unique()))
@@ -85,25 +144,10 @@ def main() -> int:
                    f"missing {len(missing)} {[str(d.date()) for d in missing[:5]]}, "
                    f"tidy-only {len(extra)} {[str(d.date()) for d in extra[:5]]}"))
 
-    # B. bars per session --------------------------------------------------
-    per_day = tidy.groupby("trade_date")["ts"].nunique()
-    checks.append(("B bars/session",
-                   per_day.median() == 375 and np.percentile(per_day, 1) >= 370,
-                   f"median {per_day.median():.0f}, P1 {np.percentile(per_day, 1):.0f}, "
-                   f"min {per_day.min()} on {per_day.idxmin().date()}"))
-
-    # C. strike grid -------------------------------------------------------
-    strikes = np.sort(tidy["strike"].unique())
-    steps = pd.Series(np.diff(strikes))
-    modal = steps.mode().iloc[0]
-    checks.append(("C strike grid", modal == 50.0,
-                   f"modal step {modal}, unique strikes {len(strikes)}, "
-                   f"range {strikes.min():.0f}..{strikes.max():.0f}"))
+    # B + C ----------------------------------------------------------------
+    checks += structural_checks(tidy, STRIKE_STEP["nifty"])
 
     # D. entry-strike exit coverage -----------------------------------------
-    first_bars = (tidy[tidy["minute"] == "09:16"]
-                  .groupby("trade_date").first().reset_index())
-    # ATM at the first plausible arrival minute (09:16)
     atm = {}
     for td, g in tidy[tidy["minute"] == "09:16"].groupby("trade_date"):
         spot = g["spot"].iloc[0]
@@ -123,7 +167,6 @@ def main() -> int:
                    f"gaps {bad_days[:8]}"))
 
     # E. cross-source close / OI -------------------------------------------
-    # like-for-like close: Dhan last-30-min volume-weighted mean close
     win = tidy[tidy["minute"].between("15:00", "15:29")].copy()
     win["cv"] = win["close"] * win["volume"]
     g = win.groupby(["trade_date", "strike", "side"]).agg(
@@ -166,7 +209,6 @@ def main() -> int:
                    f"{len(iv0):,} rows over {iv0_days} sessions; "
                    f"{iv0_on_expiry:.1%} of them on expiry sessions"))
 
-    print(f"tidy rows {len(tidy):,}; window {PULL_START}..{PULL_END}\n")
     all_pass = True
     for name, ok, detail in checks:
         flag = "PASS" if ok else "FAIL"

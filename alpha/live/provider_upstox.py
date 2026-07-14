@@ -187,16 +187,29 @@ def _depth(mf) -> list[list[float]]:
             for q in mf.marketLevel.bidAskQuote]
 
 
+#: segments that must read NORMAL_OPEN for the desk's market-state gate
+GATE_SEGMENTS = ("NSE_FO", "BSE_FO")
+OPEN_STATUS = "NORMAL_OPEN"
+
+
+def segment_names(segment_status) -> dict[str, str]:
+    """MarketStatus enum ints -> names ('NORMAL_OPEN', ...)."""
+    return {seg: pb.MarketStatus.Name(v) for seg, v in segment_status.items()}
+
+
 def decode(raw: bytes) -> list[dict]:
     """One websocket message -> normalized event dicts (no I/O, no state).
-    Every event carries the provider's currentTs; the recorder adds the
-    local receipt timestamp — both clocks, always."""
+    Every event carries the provider's currentTs AND the message's
+    feed_type ('initial_feed' snapshot vs 'live_feed' stream — the
+    discriminator the first probe lacked); the recorder adds the local
+    receipt timestamp — both clocks, always."""
     fr = pb.FeedResponse()
     fr.ParseFromString(raw)
     ts = int(fr.currentTs)
     if fr.type == pb.market_info:
         return [{"kind": "market_info", "provider_ts": ts,
-                 "segments": dict(fr.marketInfo.segmentStatus)}]
+                 "segments": segment_names(fr.marketInfo.segmentStatus)}]
+    ftype = pb.Type.Name(fr.type)
     events = []
     for key, feed in fr.feeds.items():
         union = feed.WhichOneof("FeedUnion")
@@ -206,6 +219,7 @@ def decode(raw: bytes) -> list[dict]:
                 mf = feed.fullFeed.marketFF
                 events.append({
                     "kind": "tick", "key": key, "provider_ts": ts,
+                    "feed_type": ftype,
                     "ltp": mf.ltpc.ltp, "ltt": int(mf.ltpc.ltt),
                     "ltq": int(mf.ltpc.ltq), "cp": mf.ltpc.cp,
                     "atp": mf.atp, "vtt": int(mf.vtt), "oi": mf.oi,
@@ -215,12 +229,53 @@ def decode(raw: bytes) -> list[dict]:
             elif full == "indexFF":
                 lt = feed.fullFeed.indexFF.ltpc
                 events.append({"kind": "index", "key": key,
-                               "provider_ts": ts, "ltp": lt.ltp,
+                               "provider_ts": ts, "feed_type": ftype,
+                               "ltp": lt.ltp,
                                "ltt": int(lt.ltt), "cp": lt.cp})
         elif union == "ltpc":
             events.append({"kind": "ltpc", "key": key, "provider_ts": ts,
+                           "feed_type": ftype,
                            "ltp": feed.ltpc.ltp, "ltt": int(feed.ltpc.ltt)})
     return events
+
+
+def clock_skew_s(provider_ts_ms: int, local_ns: int | None = None) -> float:
+    """Signed local-minus-provider skew in seconds."""
+    import time as _time
+    local_ns = local_ns if local_ns is not None else _time.time_ns()
+    return local_ns / 1e9 - provider_ts_ms / 1e3
+
+
+async def preflight(token: str, timeout_s: float = 20.0) -> dict:
+    """Connect the v3 feed, read the first message, report clock skew and
+    segment statuses — BEFORE any capture is allowed to run. No token
+    contents in the result."""
+    import asyncio
+    import ssl
+    import time as _time
+
+    import websockets
+
+    ssl_ctx = ssl.create_default_context()
+    async with websockets.connect(
+        WS_URL, ssl=ssl_ctx,
+        additional_headers={"Authorization": f"Bearer {token}",
+                            "Accept": "*/*"},
+    ) as ws:
+        raw = await asyncio.wait_for(ws.recv(), timeout=timeout_s)
+        local_ns = _time.time_ns()
+        fr = pb.FeedResponse()
+        fr.ParseFromString(raw)
+        segments = (segment_names(fr.marketInfo.segmentStatus)
+                    if fr.type == pb.market_info else {})
+        return {
+            "provider_ts_ms": int(fr.currentTs),
+            "local_ns": local_ns,
+            "skew_s": clock_skew_s(int(fr.currentTs), local_ns),
+            "segments": segments,
+            "gate_segments_open": all(
+                segments.get(s) == OPEN_STATUS for s in GATE_SEGMENTS),
+        }
 
 
 def rest_ltp(keys: list[str], token: str) -> dict[str, float]:

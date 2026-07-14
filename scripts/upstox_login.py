@@ -1,8 +1,12 @@
-r"""Upstox OAuth login -> fresh UPSTOX_ACCESS_TOKEN in .env.
+r"""OPTIONAL fallback: mint a daily OAuth UPSTOX_ACCESS_TOKEN into .env.
 
-Owner reports ~1-year token validity on the dedicated "alpha" app (the old
-daily ~03:30 IST expiry no longer applies) — so this runs once at setup and
-then only when a token actually dies. If the probe ever fails auth, rerun:
+Alpha's PRIMARY Upstox credential is the read-only **Analytics Token**
+(UPSTOX_ANALYTICS_TOKEN in .env, ~one-year validity, market data + v3
+websocket streaming) — pasted once from the Upstox developer console. There
+is NO daily login requirement.
+
+Run this ONLY when no analytics token is available and a temporary daily
+OAuth access_token (expires ~03:30 IST next day) is needed as a fallback:
 
   d:\alpha\.venv\Scripts\python scripts\upstox_login.py
 
@@ -10,7 +14,8 @@ Reads UPSTOX_API_KEY / UPSTOX_API_SECRET / UPSTOX_REDIRECT_URI from
 d:\alpha\.env, falling back to d:\GammaLeak\.env (same machine, same owner —
 values are never printed or committed). Opens the login URL, you approve and
 paste back the `code=` from the redirect, and the fresh token is written to
-d:\alpha\.env in place.
+d:\alpha\.env in place — it writes ONLY the UPSTOX_ACCESS_TOKEN line and
+never touches UPSTOX_ANALYTICS_TOKEN.
 """
 from __future__ import annotations
 

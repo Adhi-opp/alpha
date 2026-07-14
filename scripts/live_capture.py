@@ -1,6 +1,8 @@
 r"""Capture one bounded Alpha Live Desk session; never place an order.
 
-Use after ``scripts\upstox_login.py`` has created an access token:
+Token: prefers the one-year read-only Analytics Token
+(UPSTOX_ANALYTICS_TOKEN in .env); the daily OAuth token is a fallback only
+(scripts\upstox_login.py mints one when explicitly needed). No daily login.
 
   d:\alpha\.venv\Scripts\python scripts\live_capture.py
   d:\alpha\.venv\Scripts\python scripts\live_capture.py --minutes 30
@@ -19,8 +21,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from alpha.live.auth import load_upstox_token
 from alpha.live.collector import DEFAULT_QUEUE_MAX, SessionCapture
-from scripts.dhan_probe import load_env
 
 
 async def main() -> int:
@@ -35,9 +37,11 @@ async def main() -> int:
                     help="bounded in-memory frames before capture halts degraded")
     args = ap.parse_args()
 
-    token = load_env().get("UPSTOX_ACCESS_TOKEN", "")
-    if not token:
-        sys.exit("UPSTOX_ACCESS_TOKEN missing — run scripts\\upstox_login.py first")
+    try:
+        token, source = load_upstox_token()
+    except RuntimeError as exc:
+        sys.exit(str(exc))
+    print(f"token source: {source}")
 
     cap = SessionCapture(token, symbols=("NIFTY", "SENSEX"),
                          minutes=args.minutes, keep_raw=args.keep_raw,

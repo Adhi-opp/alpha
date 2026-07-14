@@ -60,13 +60,12 @@ ATM-relative offset (ATM, ATM±1…±10); get 1-min open/high/low/close/volume/
 oi/iv/strike/spot back, up to 5 years, 30 days/call. Full spec + recomputed
 pull size (~610 calls for NIFTY front-week ATM±2): docs/DHAN_FINDINGS.md.
 
-Remaining ₹0 step: run `scripts/dhan_probe.py` with a fresh env token to pin
-down `expiryCode` semantics, the underlying securityId, and the timestamp
-convention — then build `alpha/data/dhan_rolling.py` against the verified
-response, never a guess.
-
-**Done when:** one probe response is archived and the rolling client's
-request/parse code is written against it, with tests.
+~~Remaining ₹0 step: run `scripts/dhan_probe.py`~~ **DONE 2026-07-09/11:**
+probe archived, `alpha/data/dhan_rolling.py` built against verified
+responses (expiryCode 1-indexed, toDate inclusive, NIFTY id 13/NSE_FNO,
+SENSEX id 51/BSE_FNO), both 3-yr pulls complete and extended incrementally
+via `scripts/dhan_pull_rolling.py --symbol X --end YYYY-MM-DD` (run only
+after market close; archives are immutable).
 
 ## 4. THE PAID STEP (≈₹590 once)
 
@@ -121,17 +120,12 @@ RESOLVED 2026-07-08 (three more Zerodha notes supplied):
   `resolve_security_ids()` implemented and tested.
 
 STILL OPEN (load-bearing; promotion blocked until supplied):
-- **[DHAN — probe before pull]** RESOLVED in principle 2026-07-09: expired
-  option history EXISTS via /v2/charts/rollingoption (ATM-relative, underlying
-  id, 5yr, 30d/call — see §3 and docs/DHAN_FINDINGS.md; the earlier "95.7%
-  missing" conclusion was an error from querying the live-only master). Still
-  needed from you: a fresh token in `.env`, then `python scripts/dhan_probe.py`
-  once, so `expiryCode` semantics and the timestamp convention are verified
-  before the rolling client is written and the paid month is spent.
+- ~~[DHAN — probe before pull]~~ RESOLVED 2026-07-09/11 (see §3).
 - **[SPREAD — real half-spreads]** The fill model needs a half-spread passed
-  in and marks every fill `estimated`. Source: GammaLeak's `.depth.csv`
-  option order-book collection — point me at it once it has accumulated and
-  I'll flip `spread_is_measured=True`.
+  in and marks every fill `estimated`. Source now: the **Live Desk capture
+  layer** (docs/LIVE_DESK.md) — 5-level depth per strike per second once
+  the market-hours probe gates GREEN; GammaLeak's `.depth.csv` remains a
+  secondary source.
 - **[LEDGER — the 3 missing dead studies]** `ledger/README.md` needs the
   other three GammaLeak-era NO-GO hypotheses named, so the multiple-testing
   family count is exact. One line each is enough.
@@ -193,12 +187,14 @@ verdict:
   ₹6k kill-switch breaches + H003 holdout replication. Single look —
   `alpha/study/h004.py` refuses to run before 40 sessions; deadline
   2027-12-31 or NO-GO. A NO-GO retires the console verdict (H003 → STALE).
-- **Prerequisites:** (a) restart the daily NSE fetch — PIT store currently
-  ends 2026-07-06; (b) SENSEX/BSE rolling pull (his best sessions are BSE
-  Thursday expiries; cost model already has measured BSE rates; Dhan
-  rolling client needs the SENSEX underlying id + BSE_FNO segment probe);
-  (c) parse contract-note annexures (timestamps are exact) — the six
-  2026-07 notes seed the log retroactively, including MAE.
+- **Prerequisites — ALL DONE 2026-07-11/14:** (a) daily NSE fetch current;
+  (b) SENSEX/BSE rolling pull complete (structural census only —
+  single-source); (c) six 2026-07 notes journaled with MAE 39/39. The
+  promotion test itself is REGISTERED as [[H004]] (below); the forward log
+  is live: `journal/ratings_forward.csv` records each rating emission and
+  `scripts/owner_log_report.py` reports retro seed vs forward count
+  honestly (the retro sessions are EXCLUDED from H-004 by the frozen
+  pre-registration).
 
 ## Standing rules (apply to every step above)
 

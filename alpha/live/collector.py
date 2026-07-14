@@ -28,6 +28,8 @@ from alpha.live.recorder import Recorder, pump
 
 LIVE_ROOT = PROJECT_ROOT / "data" / "live"
 WS_SILENT_TIMEOUT_S = 30          # feed silent longer than this -> reconnect
+CLOSED_BACKOFF_S = 60.0           # silence while provider says market CLOSED:
+                                  # wait, don't thrash reconnects
 RETARGET_CHECK_S = 5.0
 SESSION_END_IST = (15, 31)
 SUB_CHUNK = 50                    # keys per subscribe frame
@@ -80,6 +82,8 @@ class SessionCapture:
         self._queue_high_water = 0
         self._queue_overflows = 0
         self._degraded_reason: str | None = None
+        self._ws = None                       # active socket (drill/aux senders)
+        self.market_status: dict[str, str] = {}   # latest market_info by segment
         self._t_start = time.time()
         self._stop = False
 
@@ -150,6 +154,39 @@ class SessionCapture:
 
     def _subscription_keys(self) -> list[str]:
         return sorted(self._active_keys)
+
+    def market_open(self) -> bool | None:
+        """True/False from the latest market_info for the gate segments;
+        None before any market_info arrived."""
+        if not self.market_status:
+            return None
+        return all(self.market_status.get(s) == up.OPEN_STATUS
+                   for s in up.GATE_SEGMENTS)
+
+    def _silent_backoff_s(self) -> float:
+        """After a silent-feed timeout: 0 = reconnect immediately (market
+        open or unknown — silence is anomalous); CLOSED_BACKOFF_S when the
+        provider itself says the market is closed (silence is CORRECT —
+        reconnect thrashing would only re-download snapshots)."""
+        return 0.0 if self.market_open() in (True, None) else CLOSED_BACKOFF_S
+
+    async def send_change(self, change: SubscriptionChange) -> bool:
+        """Send a subscription mutation on the CURRENT socket (used by
+        timer-driven aux tasks like the probe drill). Returns False when no
+        socket is up (caller retries — this is how a drill survives a
+        reconnect)."""
+        ws = self._ws
+        if ws is None:
+            return False
+        t0 = time.time_ns()
+        try:
+            await ws.send(change.frame)
+        except Exception:
+            return False
+        change.event["send_elapsed_ns"] = time.time_ns() - t0
+        self._apply_subscription_change(change)
+        self._enqueue(change.event)
+        return True
 
     # ---- retargeting -------------------------------------------------------
     def _retarget_frames(self) -> list[SubscriptionChange]:
@@ -228,6 +265,7 @@ class SessionCapture:
                         "Accept": "*/*"},
                 ) as ws:
                     attempts += 1
+                    self._ws = ws
                     await asyncio.sleep(1)
                     keys = self._subscription_keys()
                     self._note("ws_connected", attempt=attempts,
@@ -243,8 +281,17 @@ class SessionCapture:
                             raw = await asyncio.wait_for(
                                 ws.recv(), timeout=WS_SILENT_TIMEOUT_S)
                         except asyncio.TimeoutError:
+                            backoff = self._silent_backoff_s()
                             self._note("ws_silent",
-                                       timeout_s=WS_SILENT_TIMEOUT_S)
+                                       timeout_s=WS_SILENT_TIMEOUT_S,
+                                       market_open=self.market_open(),
+                                       backoff_s=backoff)
+                            if backoff:
+                                # market is closed per the provider: silence
+                                # is correct; wait HERE (socket open, drill
+                                # timers alive) instead of reconnect-thrash
+                                await asyncio.sleep(backoff)
+                                continue
                             break                       # reconnect
                         if isinstance(raw, str):
                             self._note("ws_text", text=raw[:2000])
@@ -256,6 +303,8 @@ class SessionCapture:
                                 sym = self._index_to_symbol.get(ev["key"])
                                 if sym:
                                     self.spots[sym] = ev["ltp"]
+                            elif ev["kind"] == "market_info":
+                                self.market_status = dict(ev["segments"])
                         if not self._enqueue_batch(
                                 events, raw if self.keep_raw else None, receipt_ns):
                             break
@@ -272,6 +321,8 @@ class SessionCapture:
             except Exception as exc:
                 self._note("ws_error", error=f"{type(exc).__name__}: {exc}")
                 await asyncio.sleep(5)
+            finally:
+                self._ws = None
 
     async def run(self) -> dict:
         keys = self._keys or self.resolve()

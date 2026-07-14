@@ -79,7 +79,27 @@ Truth-machine firewall: `alpha/data`, `alpha/study`, ledger machinery never
 import `alpha/live`. Live capture becomes study-visible only after a normal
 PIT ingest + census of the captured dataset.
 
-## The probe gate (nothing else gets built until this runs green)
+## Tokens (no daily login)
+
+Alpha's primary Upstox credential is the read-only **Analytics Token**
+(`UPSTOX_ANALYTICS_TOKEN`, ~one-year validity, market data REST + v3
+websocket streaming) — pasted once into `.env`. `alpha/live/auth.py`
+prefers it automatically and falls back to the daily OAuth
+`UPSTOX_ACCESS_TOKEN` (minted by `scripts/upstox_login.py`, expires ~03:30
+IST next day) only when no analytics token is set. The fallback flow never
+overwrites the analytics token; token contents are never printed.
+
+## The probe gate (nothing else gets built until this runs GREEN)
+
+The probe grades itself: **GREEN** (live streaming + fresh trades + drill
+latency measured + clean recorder), **PARTIAL** (infra fine, market closed
+or snapshot-only — probe #1 was this), **RED** (errors/degraded). Before
+any capture it preflights the CLOCK — |local − provider currentTs| > 5 s
+aborts with CLOCK_INVALID and publishes nothing (measured lesson: the
+2026-07-14 "morning" probe ran 12 hours after the session because the
+machine's clock was AM/PM-flipped). A closed market also stops reconnect
+thrashing: silence while the provider says CLOSED backs off instead of
+re-downloading snapshots every 30 s.
 
 `scripts/live_probe.py` on the next market morning answers, with a written
 findings file (docs/UPSTOX_FINDINGS.md, from real output — no guesses):
@@ -99,13 +119,13 @@ findings file (docs/UPSTOX_FINDINGS.md, from real output — no guesses):
 
 ## Sequencing
 
-1. **Today (Sun):** package + probe + tests built offline. DONE = this doc.
-2. **Mon 2026-07-13:** owner runs `upstox_login.py` if no valid token exists,
-   then
-   `live_probe.py --minutes 10` any time after 09:20 IST. Findings written.
-3. **Tue 2026-07-14 (first rated expiry):** full-session capture for both
-   chains (collector, no cockpit yet). Also the first H-004 forward session
-   — journal as usual.
+1. ~~Package + probe + tests built offline~~ DONE 2026-07-12.
+2. ~~First probe run~~ DONE 2026-07-14 — but AFTER HOURS (the clock
+   incident, docs/UPSTOX_FINDINGS.md): gate = PARTIAL, infra verified,
+   live behavior pending. The market-hours GREEN gate is still open.
+3. **Next trading morning:** `live_probe.py --minutes 10` any time
+   09:20–15:15 with a verified clock and the Analytics Token in `.env`.
+   If GREEN → full-session capture (`live_capture.py`) the same day.
 4. **Then:** seconds-level spread/MAE extraction from captures (replaces
    the 0.25% estimate with measured numbers; owner-log MAE gains a
    seconds-level upgrade path); cockpit v1 (walls, max pain, spread, energy
@@ -117,16 +137,19 @@ findings file (docs/UPSTOX_FINDINGS.md, from real output — no guesses):
 ## Commands
 
 ```text
-# Interactive browser approval; paste the full callback URL when prompted.
-# It writes the token only to gitignored .env and does not print credentials.
-.venv\Scripts\python scripts\upstox_login.py
-
-# Short raw probe. It writes a unique probe_<run-id> directory.
+# Short raw probe (analytics token preferred automatically). Writes a
+# unique probe_<run-id> directory; exits 0 GREEN / 1 PARTIAL / 2 RED /
+# 3 CLOCK_INVALID.
 .venv\Scripts\python scripts\live_probe.py --minutes 10
 
 # Normalized full-session capture; no order hooks. Add --keep-raw only when
 # the additional raw storage is wanted explicitly.
 .venv\Scripts\python scripts\live_capture.py
+
+# OPTIONAL fallback only (no daily-login requirement): mint a daily OAuth
+# token when no analytics token is available. Interactive browser approval;
+# writes only the UPSTOX_ACCESS_TOKEN line, never the analytics token.
+.venv\Scripts\python scripts\upstox_login.py
 ```
 
 Every capture has a bounded recorder queue. A queue overflow halts the

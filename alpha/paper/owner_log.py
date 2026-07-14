@@ -28,6 +28,10 @@ from alpha.study.h001r import client_write_intensity
 JOURNAL_DIR = PROJECT_ROOT / "journal"
 MAE_FLAG_FRAC = -0.30          # MAE beyond -30% of entry premium while held
 MAX_PLAUSIBLE_CHARGES = 2000.0  # per-session reconciliation band (rupees)
+#: first H-004 forward session (mirrors the frozen ledger/H004 pre-reg;
+#: journal sessions BEFORE this are the retro seed, excluded from H-004)
+H004_FORWARD_START = pd.Timestamp("2026-07-14")
+H004_TARGET = 40
 _CONTRACT_RE = re.compile(
     r"^(NIFTY|SENSEX)(\d{2})([1-9OND])(\d{2})(\d+)(CE|PE)$")
 
@@ -178,6 +182,27 @@ def _flag(trades: pd.DataFrame) -> pd.DataFrame:
     return trades
 
 
+def load_forward_ratings(journal_dir: Path | None = None) -> pd.DataFrame:
+    """H-004 forward rating emissions (journal/ratings_forward.csv) —
+    committed evidence that a rating existed for each forward expiry
+    session, with its settlement state ('pending' until the contract note
+    is journaled or abstention is confirmed). Empty frame if none yet."""
+    d = journal_dir or JOURNAL_DIR
+    f = d / "ratings_forward.csv"
+    cols = ["session_date", "wi_pctile_252", "tier", "is_nifty_expiry",
+            "computed_from", "emitted_at_ist", "outcome", "note"]
+    if not f.exists():
+        return pd.DataFrame(columns=cols)
+    df = pd.read_csv(f, parse_dates=["session_date"])
+    bad = df[df["session_date"] < H004_FORWARD_START]
+    if len(bad):
+        raise ValueError(
+            f"ratings_forward.csv contains pre-forward rows "
+            f"{[str(x.date()) for x in bad['session_date']]} — the retro "
+            f"seed is excluded from H-004 by the frozen pre-registration")
+    return df
+
+
 def summary(asof: datetime | None = None, root: Path | None = None,
             journal_dir: Path | None = None) -> dict:
     sessions, trades = load_journal(journal_dir)
@@ -185,10 +210,22 @@ def summary(asof: datetime | None = None, root: Path | None = None,
     trades = attach_mae(trades, asof, root=root)
     validated = rated[rated["scope"] == "validated"]
     mae_done = trades["mae_pct"].notna()
+    forward = load_forward_ratings(journal_dir)
+    # retro = journal sessions before the H-004 forward start: context
+    # only, NEVER pooled into the forward test (frozen exclusion)
+    retro_validated = validated[
+        validated["session_date"] < H004_FORWARD_START]
     return {
         "sessions_logged": int(len(sessions)),
-        "sessions_validated_scope": int(len(validated)),
-        "sessions_target": 40,
+        "retro_validated_sessions": int(len(retro_validated)),
+        "h004_ratings_emitted": int(len(forward)),
+        "h004_finalized": (int((forward["outcome"] != "pending").sum())
+                           if len(forward) else 0),
+        "h004_target": H004_TARGET,
+        "h004_forward": (forward[
+            ["session_date", "wi_pctile_252", "tier", "outcome"]].assign(
+            session_date=lambda d: d["session_date"].dt.date.astype(str)
+        ).to_dict("records") if len(forward) else []),
         "trades_logged": int(len(trades)),
         "day_pnl_total": round(float(sessions["day_net_pnl"].sum()), 2),
         "median_hold_s": float(trades["hold_s"].median()),
