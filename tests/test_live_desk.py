@@ -6,6 +6,7 @@ import pytest
 
 from alpha.live import provider_upstox as up
 from alpha.live import replay
+from alpha.live.collector import SessionCapture
 from alpha.live.recorder import Recorder, pump
 
 
@@ -142,12 +143,13 @@ def test_recorder_roundtrip_and_manifest(tmp_path):
     # rotation happens at batch boundaries: this batch opens segment 2
     rec.write_batch([{"kind": "tick", "t_local_ns": 3, "ltp": 3.0},
                      {"kind": "note", "t_local_ns": 4}])
-    manifest = rec.close()
+    manifest = rec.close(metadata={"run_id": "test-run"})
     assert manifest["n_events"] == 4
     assert manifest["n_raw"] == 1
     assert manifest["t_first_ns"] == 1 and manifest["t_last_ns"] == 4
     assert len(manifest["segments"]) == 2
     assert all(s.endswith(".gz") for s in manifest["segments"])
+    assert manifest["metadata"]["run_id"] == "test-run"
 
     evs = list(replay.events(tmp_path / "s"))
     assert [e["t_local_ns"] for e in evs] == [1, 2, 3, 4]
@@ -160,7 +162,7 @@ def test_pump_drains_and_stops(tmp_path):
         rec = Recorder(tmp_path / "p")
         q = asyncio.Queue()
         for i in range(7):
-            q.put_nowait(({"kind": "tick", "t_local_ns": i}, None))
+            q.put_nowait(([{"kind": "tick", "t_local_ns": i}], []))
         q.put_nowait(None)
         await pump(q, rec, batch_max=3)
         return rec.close()
@@ -171,11 +173,74 @@ def test_pump_drains_and_stops(tmp_path):
     assert [e["t_local_ns"] for e in evs] == list(range(7))
 
 
+def test_one_raw_frame_per_decoded_message_and_shared_receipt(tmp_path):
+    cap = SessionCapture("token", out_root=tmp_path, keep_raw=True)
+    assert cap._enqueue_batch(
+        [{"kind": "tick", "key": "A"}, {"kind": "tick", "key": "B"}],
+        raw=b"one-wire-message", receipt_ns=123,
+    )
+    batch = cap.queue.get_nowait()
+    assert [e["t_local_ns"] for e in batch[0]] == [123, 123]
+    assert batch[1] == [(123, b"one-wire-message")]
+
+    async def scenario():
+        rec = Recorder(cap.dir, keep_raw=True)
+        q = asyncio.Queue()
+        q.put_nowait(batch)
+        q.put_nowait(None)
+        await pump(q, rec)
+        rec.close()
+
+    asyncio.run(scenario())
+    assert list(replay.raw_frames(cap.dir)) == [(123, b"one-wire-message")]
+    assert len(list(replay.events(cap.dir))) == 2
+
+
+def test_queue_overflow_halts_instead_of_silently_dropping(tmp_path):
+    cap = SessionCapture("token", out_root=tmp_path, queue_max=1)
+    assert cap._enqueue_batch([{"kind": "tick"}], receipt_ns=1)
+    assert not cap._enqueue_batch([{"kind": "tick"}], receipt_ns=2)
+    assert cap._stop
+    assert cap._queue_overflows == 1
+    assert cap._degraded_reason
+
+
+def test_retarget_commits_only_after_change_application(tmp_path):
+    options = {}
+    for strike in (100.0, 150.0, 200.0, 250.0, 300.0, 350.0, 400.0):
+        for side in ("CE", "PE"):
+            options[(strike, side)] = f"NSE_FO|{int(strike)}{side}"
+    cap = SessionCapture("token", symbols=("NIFTY",), out_root=tmp_path,
+                         half_width=2, inner=1)
+    chain = up.Chain("NIFTY", "2026-07-14", "NSE_INDEX|Nifty 50",
+                     "NSE_FO|F", options, sorted({k[0] for k in options}))
+    old_band = [100.0, 150.0, 200.0, 250.0, 300.0]
+    cap.chains["NIFTY"] = chain
+    cap.bands["NIFTY"] = old_band.copy()
+    cap.spots["NIFTY"] = 350.0
+    cap._active_keys = {chain.index_key, chain.future_key, *chain.band_keys(old_band)}
+
+    changes = cap._retarget_frames()
+    # The live state remains honest until the websocket confirms each send.
+    assert cap.bands["NIFTY"] == old_band
+    for change in changes:
+        cap._apply_subscription_change(change)
+    assert cap.bands["NIFTY"] != old_band
+    assert set(chain.band_keys(cap.bands["NIFTY"])).issubset(cap._active_keys)
+    assert not set(chain.band_keys([100.0, 150.0])).intersection(cap._active_keys)
+
+
+def test_capture_runs_never_reuse_a_label_directory(tmp_path):
+    a = SessionCapture("token", out_root=tmp_path, label="probe")
+    b = SessionCapture("token", out_root=tmp_path, label="probe")
+    assert a.dir != b.dir
+
+
 def test_firewall_no_reverse_imports():
     """alpha.data / alpha.study / console must never import alpha.live."""
     import pathlib
     root = pathlib.Path(__file__).resolve().parents[1] / "alpha"
     for sub in ("data", "study", "measure", "console", "paper", "model"):
-        for p in (root / sub).glob("*.py"):
+        for p in (root / sub).rglob("*.py"):
             assert "alpha.live" not in p.read_text(encoding="utf-8"), \
                 f"{p} imports alpha.live — firewall breach"

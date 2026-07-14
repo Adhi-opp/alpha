@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import gzip
 import json
+import os
 import struct
 from pathlib import Path
 
@@ -85,7 +86,7 @@ class Recorder:
             self._raw_fh.flush()
             self.n_raw += len(raws)
 
-    def close(self) -> dict:
+    def close(self, metadata: dict | None = None) -> dict:
         if self._closed:
             return json.loads((self.dir / "manifest.json").read_text())
         self._closed = True
@@ -109,7 +110,18 @@ class Recorder:
             "segments": segments,
             "raw_segments": sorted(p.name for p in self.dir.glob("raw_*.bin")),
         }
-        (self.dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
+        if metadata:
+            manifest["metadata"] = metadata
+        # A half-written manifest must never make a complete capture
+        # unreplayable. Event segments remain append-only; publish their index
+        # atomically only after all close-time work is complete.
+        target = self.dir / "manifest.json"
+        tmp = self.dir / "manifest.json.tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(manifest, indent=2))
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, target)
         return manifest
 
 
@@ -118,20 +130,30 @@ async def pump(queue: asyncio.Queue, recorder: Recorder,
     """Drain the queue into the recorder in batches. A `None` item is the
     shutdown sentinel. Disk writes run in a thread so this task never
     blocks the loop for the recv coroutine."""
+    pending = None
     while True:
-        item = await queue.get()
+        item = pending if pending is not None else await queue.get()
+        pending = None
         if item is None:
-            break
-        events, raws = [item[0]], list(item[1]) if item[1] else []
+            return
+        events, raws = list(item[0]), list(item[1])
+        stopping = False
         while len(events) < batch_max:
             try:
                 nxt = queue.get_nowait()
             except asyncio.QueueEmpty:
                 break
             if nxt is None:
-                await asyncio.to_thread(recorder.write_batch, events, raws)
-                return
-            events.append(nxt[0])
-            if nxt[1]:
-                raws.extend(nxt[1])
+                stopping = True
+                break
+            next_events, next_raws = nxt
+            # Preserve one raw frame per websocket message. Do not split a
+            # decoded message merely to hit an arbitrary write-batch size.
+            if events and len(events) + len(next_events) > batch_max:
+                pending = nxt
+                break
+            events.extend(next_events)
+            raws.extend(next_raws)
         await asyncio.to_thread(recorder.write_batch, events, raws)
+        if stopping:
+            return

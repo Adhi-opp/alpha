@@ -17,6 +17,7 @@ from __future__ import annotations
 import sys
 import webbrowser
 from pathlib import Path
+from secrets import token_urlsafe
 from urllib.parse import parse_qs, quote, urlparse
 
 import requests
@@ -67,19 +68,21 @@ def main() -> int:
     api_secret = credential("UPSTOX_API_SECRET")
     redirect = credential("UPSTOX_REDIRECT_URI")
 
+    state = token_urlsafe(24)
     url = (f"{AUTH_URL}?client_id={quote(api_key, safe='')}"
            f"&redirect_uri={quote(redirect, safe='')}"
-           f"&response_type=code&scope=default")
-    print("1. Approving in the browser (URL also printed below):\n")
-    print(url + "\n")
+           f"&response_type=code&scope=default&state={quote(state, safe='')}")
+    print("1. Opening the Upstox approval page in your browser.\n")
     webbrowser.open(url)
-    pasted = input("2. Paste the FULL redirect URL (or just the code): ").strip()
-    if "code=" in pasted:
-        code = parse_qs(urlparse(pasted).query).get("code", [""])[0]
-    else:
-        code = pasted
-    if not code:
-        sys.exit("no authorization code found in the pasted value")
+    try:
+        pasted = input("2. Paste the FULL redirect URL: ").strip()
+    except EOFError:
+        sys.exit("OAuth approval needs an interactive terminal; run this command yourself")
+    query = parse_qs(urlparse(pasted).query)
+    code = query.get("code", [""])[0]
+    returned_state = query.get("state", [""])[0]
+    if not code or returned_state != state:
+        sys.exit("invalid OAuth callback: missing code or state mismatch")
 
     resp = requests.post(TOKEN_URL, data={
         "code": code, "client_id": api_key, "client_secret": api_secret,

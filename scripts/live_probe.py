@@ -30,7 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from alpha.live import provider_upstox as up
 from alpha.live import replay
-from alpha.live.collector import SessionCapture
+from alpha.live.collector import SessionCapture, SubscriptionChange
 from scripts.dhan_probe import load_env
 
 DRILL_AFTER_S = 120       # unsub 2 wing strikes after this long
@@ -55,12 +55,16 @@ class ProbeCapture(SessionCapture):
         if self._drill_state == "pending" and elapsed >= DRILL_AFTER_S:
             self._drill_state = "unsubbed"
             self._drill_keys = chain.band_keys(band[-2:])
-            return [(up.build_frame("unsub", self._drill_keys),
-                     {"kind": "drill_unsub", "keys": self._drill_keys})]
+            return [SubscriptionChange(
+                up.build_frame("unsub", self._drill_keys),
+                {"kind": "drill_unsub", "keys": self._drill_keys},
+                remove=self._drill_keys)]
         if self._drill_state == "unsubbed" and elapsed >= DRILL_AFTER_S + DRILL_RESUB_S:
             self._drill_state = "done"
-            return [(up.build_frame("sub", self._drill_keys),
-                     {"kind": "drill_resub", "keys": self._drill_keys})]
+            return [SubscriptionChange(
+                up.build_frame("sub", self._drill_keys),
+                {"kind": "drill_resub", "keys": self._drill_keys},
+                add=self._drill_keys)]
         return []
 
     def _retarget_frames(self):
