@@ -27,7 +27,18 @@ from alpha.study.h001r import client_write_intensity
 
 JOURNAL_DIR = PROJECT_ROOT / "journal"
 MAE_FLAG_FRAC = -0.30          # MAE beyond -30% of entry premium while held
-MAX_PLAUSIBLE_CHARGES = 2000.0  # per-session reconciliation band (rupees)
+#: reconciliation band floor (rupees). Real charges scale with turnover
+#: (STT 0.15% sell-side is the dominant term), so the ceiling is
+#: turnover-proportional — the 2026-07-14 session's legitimate Rs2,310 of
+#: charges on ~Rs1.1M premium turnover exceeded the old flat Rs2,000 band.
+MAX_PLAUSIBLE_CHARGES = 2000.0
+CHARGES_TURNOVER_FRAC = 0.005   # generous: measured sessions run ~0.2%
+
+
+def plausible_charges_hi(turnover: float) -> float:
+    """Upper bound for a session's implied charges given its premium
+    turnover (sum of (entry+exit) WAP x qty over its trades)."""
+    return max(MAX_PLAUSIBLE_CHARGES, CHARGES_TURNOVER_FRAC * turnover)
 #: first H-004 forward session (mirrors the frozen ledger/H004 pre-reg;
 #: journal sessions BEFORE this are the retro seed, excluded from H-004)
 H004_FORWARD_START = pd.Timestamp("2026-07-14")
@@ -55,10 +66,19 @@ def load_journal(journal_dir: Path | None = None
                         for f in sorted(d.glob("trades_*.csv"))],
                        ignore_index=True)
 
-    for col in ("entry_time", "exit_time"):
-        trades[col.replace("time", "ts")] = pd.to_datetime(
-            trades["session_date"].dt.strftime("%Y-%m-%d") + " " + trades[col]
-        ).dt.tz_localize(IST)
+    # entry_date (optional column): an overnight position's entry day —
+    # blank means the trade opened and closed inside its session
+    if "entry_date" in trades.columns:
+        entry_base = pd.to_datetime(trades["entry_date"]).fillna(
+            trades["session_date"])
+    else:
+        entry_base = trades["session_date"]
+    trades["entry_ts"] = pd.to_datetime(
+        entry_base.dt.strftime("%Y-%m-%d") + " " + trades["entry_time"]
+    ).dt.tz_localize(IST)
+    trades["exit_ts"] = pd.to_datetime(
+        trades["session_date"].dt.strftime("%Y-%m-%d") + " " + trades["exit_time"]
+    ).dt.tz_localize(IST)
     trades["hold_s"] = (trades["exit_ts"] - trades["entry_ts"]).dt.total_seconds()
     trades["gross_pnl"] = (trades["exit_wap"] - trades["entry_wap"]) * trades["qty"]
     trades["ret_pct"] = (trades["exit_wap"] - trades["entry_wap"]) / trades["entry_wap"]
@@ -81,14 +101,17 @@ def load_journal(journal_dir: Path | None = None
                 f"trades_transcribed={row.trades_transcribed}")
         if n == 0:
             continue
-        gross = float(trades.loc[trades["session_date"] == row.session_date,
-                                 "gross_pnl"].sum())
+        day = trades[trades["session_date"] == row.session_date]
+        gross = float(day["gross_pnl"].sum())
+        turnover = float(((day["entry_wap"] + day["exit_wap"])
+                          * day["qty"]).sum())
         implied_charges = gross - row.day_net_pnl
-        if not (0 < implied_charges < MAX_PLAUSIBLE_CHARGES):
+        if not (0 < implied_charges < plausible_charges_hi(turnover)):
             problems.append(
                 f"{row.session_date.date()}: gross {gross:.2f} vs net "
                 f"{row.day_net_pnl:.2f} implies charges "
-                f"{implied_charges:.2f} — outside plausible band")
+                f"{implied_charges:.2f} — outside plausible band "
+                f"(hi {plausible_charges_hi(turnover):.0f})")
     if problems:
         raise ValueError("journal validation failed: " + "; ".join(problems))
     return sessions, trades
@@ -155,7 +178,12 @@ def attach_mae(trades: pd.DataFrame, asof: datetime | None = None,
         tidy = tidys.get(t["symbol"])
         if tidy is None or t["session_date"] not in set(tidy["trade_date"].unique()):
             continue
-        day = tidy[(tidy["trade_date"] == t["session_date"])
+        # an overnight hold spans two sessions: include the entry day's
+        # bars too, or the excursion between entry and the next open is
+        # invisible
+        hold_dates = {t["session_date"],
+                      pd.Timestamp(t["entry_ts"].date())}
+        day = tidy[(tidy["trade_date"].isin(hold_dates))
                    & (tidy["strike"] == t["strike"])
                    & (tidy["side"] == t["side"])]
         # bars are stamped at minute START: floor the entry so a sub-minute

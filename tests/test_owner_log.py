@@ -17,13 +17,17 @@ def test_contract_parse():
 
 def test_real_journal_loads_and_reconciles():
     sessions, trades = owner_log.load_journal()
-    assert len(sessions) == 6
-    assert len(trades) == 39
+    assert len(sessions) == 8
+    assert len(trades) == 53
     # every transcribed session's implied charges sit in the plausible band
+    # (turnover-proportional: the 2026-07-14 session's Rs2,310 of charges on
+    # ~Rs1.1M turnover is legitimate)
     for row in sessions[sessions["trades_transcribed"] > 0].itertuples():
-        gross = trades.loc[trades["session_date"] == row.session_date,
-                           "gross_pnl"].sum()
-        assert 0 < gross - row.day_net_pnl < owner_log.MAX_PLAUSIBLE_CHARGES
+        day = trades[trades["session_date"] == row.session_date]
+        gross = day["gross_pnl"].sum()
+        turnover = ((day["entry_wap"] + day["exit_wap"]) * day["qty"]).sum()
+        assert (0 < gross - row.day_net_pnl
+                < owner_log.plausible_charges_hi(turnover))
     # the measured scalping profile: sub-minute-to-minutes holds
     assert trades["hold_s"].median() < 300
     assert trades["hold_s"].min() >= 5
@@ -31,6 +35,13 @@ def test_real_journal_loads_and_reconciles():
     worst = trades.loc[trades["gross_pnl"].idxmin()]
     assert worst["contract"] == "SENSEX2670277600PE"
     assert worst["gross_pnl"] == pytest.approx(-7156.0)
+    # the overnight trade: entered 2026-07-13, realized at Tuesday's open
+    on = trades[(trades["contract"] == "NIFTY2671424250PE")
+                & (trades["session_date"] == pd.Timestamp("2026-07-14"))]
+    assert len(on) == 1
+    assert str(on["entry_ts"].iloc[0].date()) == "2026-07-13"
+    assert on["hold_s"].iloc[0] > 20 * 3600
+    assert on["gross_pnl"].iloc[0] == pytest.approx(8823.75)
 
 
 def test_validation_refuses_bad_reconciliation(tmp_path):
@@ -49,7 +60,7 @@ def test_validation_refuses_bad_reconciliation(tmp_path):
 def test_session_ratings_scope_on_real_data():
     sessions, _ = owner_log.load_journal()
     rated = owner_log.session_ratings(
-        sessions, asof=datetime(2026, 7, 11, tzinfo=timezone.utc))
+        sessions, asof=datetime(2026, 7, 15, tzinfo=timezone.utc))
     by = {str(r.session_date.date()): r for r in rated.itertuples()}
     # 2026-07-07 was a Tuesday NIFTY expiry traded on NSE -> validated scope
     assert by["2026-07-07"].is_nifty_expiry
@@ -58,10 +69,54 @@ def test_session_ratings_scope_on_real_data():
     assert not by["2026-07-10"].is_nifty_expiry
     assert by["2026-07-10"].scope == "observational"
     assert by["2026-07-09"].scope == "observational"
+    # 2026-07-14 = first H-004 forward expiry session; Monday before it is not
+    assert by["2026-07-14"].is_nifty_expiry
+    assert by["2026-07-14"].scope == "validated"
+    assert by["2026-07-14"].wi_pctile_252 == pytest.approx(52.8)
+    assert by["2026-07-13"].scope == "observational"
     # every session has a rating computed strictly from prior files
     assert all(r.wi_pctile_252 is not None for r in rated.itertuples())
     assert all(r.tier in ("FAVORABLE", "NEUTRAL", "UNFAVORABLE")
                for r in rated.itertuples())
+
+
+def test_charges_band_is_turnover_aware():
+    assert owner_log.plausible_charges_hi(0) == owner_log.MAX_PLAUSIBLE_CHARGES
+    assert owner_log.plausible_charges_hi(100_000) == owner_log.MAX_PLAUSIBLE_CHARGES
+    # ~Rs1.1M turnover session: real charges Rs2,310 must fit
+    assert owner_log.plausible_charges_hi(1_100_000) == pytest.approx(5_500)
+
+
+def test_overnight_mae_spans_both_days(tmp_path):
+    # premium dips hard on the ENTRY day's afternoon; closes higher next
+    # open — the excursion is only visible if entry-day bars are included
+    ts1 = pd.date_range("2026-07-13 12:00", periods=5, freq="1min",
+                        tz="Asia/Kolkata").tz_convert("UTC")
+    ts2 = pd.date_range("2026-07-14 09:15", periods=2, freq="1min",
+                        tz="Asia/Kolkata").tz_convert("UTC")
+    tidy = pd.concat([
+        pd.DataFrame({"ts": ts1, "side": "PE", "strike": 24250.0,
+                      "close": [160.0, 150.0, 100.0, 140.0, 155.0],
+                      "trade_date": pd.Timestamp("2026-07-13"),
+                      "available_at": ts1[-1] + pd.Timedelta(hours=6)}),
+        pd.DataFrame({"ts": ts2, "side": "PE", "strike": 24250.0,
+                      "close": [204.0, 205.0],
+                      "trade_date": pd.Timestamp("2026-07-14"),
+                      "available_at": ts2[-1] + pd.Timedelta(hours=6)}),
+    ], ignore_index=True)
+    pit.append("dhan_rolling_1m", tidy, ["ts", "strike", "side"], root=tmp_path)
+    trades = pd.DataFrame([{
+        "session_date": pd.Timestamp("2026-07-14"), "exchange": "NSE",
+        "contract": "NIFTY2671424250PE", "symbol": "NIFTY",
+        "strike": 24250.0, "side": "PE", "qty": 195,
+        "entry_ts": ts1[0], "exit_ts": ts2[0],
+        "entry_wap": 159.30, "exit_wap": 204.55,
+    }])
+    out = owner_log.attach_mae(
+        trades, asof=datetime(2026, 7, 15, tzinfo=timezone.utc), root=tmp_path)
+    # worst close 100 on the entry day -> MAE (100-159.30)/159.30 = -37.2%
+    assert out["mae_pct"].iloc[0] == pytest.approx(-0.3723, abs=1e-3)
+    assert out["discipline_flag"].iloc[0] == True  # noqa: E712
 
 
 def test_attach_mae_synthetic(tmp_path):
