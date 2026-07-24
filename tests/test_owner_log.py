@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from alpha.config import IST
 from alpha.data import pit
 from alpha.paper import owner_log
 
@@ -156,6 +157,121 @@ def test_attach_mae_synthetic(tmp_path):
     out3 = owner_log.attach_mae(
         sub3, asof=datetime(2026, 7, 12, tzinfo=timezone.utc), root=tmp_path)
     assert out3["mae_pct"].iloc[0] == 0.0    # closes never below entry -> 0
+
+
+def _poi_store(root, n: int, last: str) -> None:
+    dates = pd.bdate_range(end=last, periods=n)
+    poi = pd.DataFrame({
+        "trade_date": dates, "client_type": "Client",
+        "opt_idx_call_long": 100.0, "opt_idx_put_long": 100.0,
+        "opt_idx_call_short": 100.0 + np.arange(n),
+        "opt_idx_put_short": 100.0 + np.arange(n),
+        "available_at": (dates + pd.Timedelta(hours=17)).tz_localize("UTC"),
+    })
+    pit.append("participant_oi", poi, ["trade_date", "client_type"],
+               root=root)
+
+
+def _bhav_store(root, expiry: str, trade_date: str) -> None:
+    td = pd.Timestamp(trade_date)
+    bhav = pd.DataFrame([{
+        "trade_date": td, "symbol": "NIFTY", "instrument": "IDO",
+        "expiry": pd.Timestamp(expiry), "lot": 65,
+        "available_at": (td + pd.Timedelta(hours=13)).tz_localize("UTC")}])
+    pit.append("fo_bhavcopy", bhav,
+               ["trade_date", "symbol", "instrument", "expiry"], root=root)
+
+
+_EMIT_ASOF = datetime(2026, 7, 28, 3, 0, tzinfo=timezone.utc)  # 08:30 IST
+
+
+def test_compute_forward_rating_guards(tmp_path):
+    r1 = tmp_path / "r1"
+    _poi_store(r1, 30, "2026-07-27")
+    _bhav_store(r1, "2026-07-28", "2026-07-27")
+    out = owner_log.compute_forward_rating("2026-07-28", asof=_EMIT_ASOF,
+                                           root=r1)
+    # monotone-increasing wi -> the latest file is the max of its window
+    assert out["wi_pctile_252"] == 100.0
+    assert out["tier"] == "FAVORABLE"
+    assert out["is_nifty_expiry"] is True
+    assert out["computed_from"] == "2026-07-27"
+    # fetch dead: freshest file 8 days before the session -> refused
+    with pytest.raises(ValueError, match="unrated"):
+        owner_log.compute_forward_rating(
+            "2026-08-04", asof=datetime(2026, 8, 4, 3, 0,
+                                        tzinfo=timezone.utc), root=r1)
+    # under the history floor -> refused
+    r2 = tmp_path / "r2"
+    _poi_store(r2, 19, "2026-07-27")
+    _bhav_store(r2, "2026-07-28", "2026-07-27")
+    with pytest.raises(ValueError, match="history floor"):
+        owner_log.compute_forward_rating("2026-07-28", asof=_EMIT_ASOF,
+                                         root=r2)
+
+
+def _no_nse_journal(d) -> None:
+    """A loadable journal with NO NSE rows (one benign BSE observational)."""
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "sessions_x.csv").write_text(
+        "session_date,exchange,note_id,day_net_pnl,n_round_trips,"
+        "trades_transcribed\n"
+        "2026-07-16,BSE,OBS,100.0,1,1\n")
+    (d / "trades_x.csv").write_text(
+        "session_date,exchange,contract,expiry,qty,entry_time,exit_time,"
+        "entry_wap,exit_wap\n"
+        "2026-07-16,BSE,SENSEX2671676700PE,2026-07-16,20,10:00:00,"
+        "10:05:00,100.0,110.0\n")
+
+
+def test_emit_and_finalize_forward_rating(tmp_path):
+    root = tmp_path / "root"
+    _poi_store(root, 30, "2026-07-27")
+    _bhav_store(root, "2026-07-28", "2026-07-27")
+    j = tmp_path / "j"
+    _no_nse_journal(j)
+    pre_open = pd.Timestamp("2026-07-28 08:55").tz_localize(IST)
+
+    row = owner_log.emit_forward_rating(
+        "2026-07-28", asof=_EMIT_ASOF, root=root, journal_dir=j,
+        note="test emission", now_ist=pre_open)
+    assert row["outcome"] == "pending"
+    ledger = owner_log.load_forward_ratings(j)
+    assert len(ledger) == 1
+    assert str(ledger["session_date"].iloc[0].date()) == "2026-07-28"
+    assert ledger["outcome"].iloc[0] == "pending"
+
+    # a second emission for the same session is refused
+    with pytest.raises(ValueError, match="already emitted"):
+        owner_log.emit_forward_rating("2026-07-28", asof=_EMIT_ASOF,
+                                      root=root, journal_dir=j,
+                                      now_ist=pre_open)
+    # at/after the open the emission window is closed for good
+    with pytest.raises(ValueError, match="post-open"):
+        owner_log.emit_forward_rating(
+            "2026-07-29", asof=_EMIT_ASOF, root=root, journal_dir=j,
+            now_ist=pd.Timestamp("2026-07-29 09:15").tz_localize(IST))
+    # pre-forward dates can never enter the ledger
+    with pytest.raises(ValueError, match="predates"):
+        owner_log.emit_forward_rating("2026-07-07", asof=_EMIT_ASOF,
+                                      root=root, journal_dir=j,
+                                      now_ist=pre_open)
+
+    # 'traded' needs the journal row first; the journal is empty
+    with pytest.raises(ValueError, match="contract note first"):
+        owner_log.finalize_forward_rating("2026-07-28", "traded",
+                                          journal_dir=j)
+    out = owner_log.finalize_forward_rating("2026-07-28", "abstained",
+                                            journal_dir=j)
+    assert out["outcome"] == "abstained"
+    # settled means settled
+    with pytest.raises(ValueError, match="already finalized"):
+        owner_log.finalize_forward_rating("2026-07-28", "traded",
+                                          journal_dir=j)
+    # nothing emitted for that date at all
+    with pytest.raises(ValueError, match="no emitted rating"):
+        owner_log.finalize_forward_rating("2026-08-04", "abstained",
+                                          journal_dir=j)
 
 
 def test_attach_mae_no_coverage_stays_null(tmp_path):

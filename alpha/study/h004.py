@@ -7,9 +7,19 @@ before 40 forward sessions have accrued (single-look, enforced structurally,
 not by promise). The H003 holdout replication (gate 5) runs INSIDE run(),
 after the n-guard — the locked holdout cannot be peeked at via this module.
 
-The sample is every rated NSE NIFTY front-week expiry session from
-FORWARD_START, traded or not: an expiry session with no journal row is an
-abstention and enters at Y = 0. The retro-seeded 2026-07 sessions are
+The sample source is the committed forward-rating ledger
+(journal/ratings_forward.csv, via owner_log.load_forward_ratings): an
+expiry session enters only if a rating was actually EMITTED for it
+pre-open, with X taken verbatim from that row. Ratings are never
+reconstructed from participant files after the fact — a file backfilled
+later cannot testify about what the console showed that morning.
+2026-07-21 is the canonical case: the daily fetch was dead, no rating was
+emitted, and the Jul-15..23 backfill must not resurrect the session; the
+frozen text already rules it ("Sessions unrated because the fetch was dead
+are excluded AND disclosed"). Outcomes come from the ledger's outcome
+column: 'traded' takes Y from the journaled day net, 'abstained' enters at
+Y = 0, 'pending' is excluded until finalized — a pending session never
+silently becomes an abstention zero. The retro-seeded 2026-07 sessions are
 excluded by FORWARD_START itself.
 """
 from __future__ import annotations
@@ -31,8 +41,12 @@ from alpha.paper import owner_log
 FORWARD_START = date(2026, 7, 14)     # first console-rated expiry session
 MIN_SESSIONS = 40                     # single evaluation at exactly this count
 DEADLINE = date(2027, 12, 31)         # fewer than 40 by then = NO-GO
-MAX_STALE_DAYS = 4                    # console stale guard, mirrored
-MIN_WI_HISTORY = 20
+# emission guards (stale file / history floor) are enforced where emission
+# happens — owner_log.compute_forward_rating — never re-applied here after
+# the fact; these aliases keep the frozen-parameter mirror complete
+MAX_STALE_DAYS = owner_log.H004_MAX_STALE_DAYS
+MIN_WI_HISTORY = owner_log.H004_MIN_WI_HISTORY
+VALID_OUTCOMES = ("traded", "abstained", "pending")
 BLOCK_SESSIONS = 5                    # weekly expiries; block-10 = sensitivity
 N_RESAMPLES = 4000
 SEED = 53
@@ -45,31 +59,51 @@ class SingleLookError(RuntimeError):
     """Raised when the evaluation is attempted before 40 sessions accrue."""
 
 
-def _rating_for(session: pd.Timestamp, wi: pd.DataFrame) -> float | None:
-    """wi percentile exactly as owner_log.session_ratings / the console:
-    most recent strictly-prior file vs its trailing 252, with the stale
-    guard the console applies live."""
-    hist = wi[wi["trade_date"] < session]
-    if len(hist) < MIN_WI_HISTORY:
-        return None
-    if (session - hist["trade_date"].iloc[-1]).days > MAX_STALE_DAYS:
-        return None                    # console showed no verdict that morning
-    tail = hist["wi"].tail(252)
-    return round(float((tail <= float(tail.iloc[-1])).mean() * 100), 1)
-
-
 def assemble(asof: datetime | None = None, root: Path | None = None,
-             journal_dir: Path | None = None) -> tuple[pd.DataFrame, list[str]]:
-    """One row per rated forward expiry session: rating X, realized Y
-    (0 = abstained), and the discipline-clean Y for gate 3. Returns the
-    frame plus the disclosed list of unrated (excluded) expiry sessions."""
+             journal_dir: Path | None = None
+             ) -> tuple[pd.DataFrame, list[str], list[str]]:
+    """One row per FINALIZED rated forward expiry session: X verbatim from
+    the forward ledger, realized Y (0 = confirmed abstention), and the
+    discipline-clean Y for gate 3.
+
+    Returns (frame, unrated, pending):
+      unrated — bhavcopy-calendar expiry sessions with NO emitted rating
+                (excluded AND disclosed, per the frozen text). Participant
+                files are deliberately not consulted: a backfilled file
+                cannot witness what the console showed that morning.
+      pending — emitted ratings whose outcome is not yet finalized
+                (excluded from the frame; never silently Y = 0).
+    An emitted rating whose bhavcopy file has not landed yet (today's
+    session before the evening publish) is simply not iterated — it accrues
+    once the calendar contains the date."""
     asof = asof or datetime.now(timezone.utc)
-    wi = client_write_intensity(pit.load("participant_oi", asof, root=root))
     bhav = pit.load("fo_bhavcopy", asof, root=root)
     meta = front_week_meta(bhav)
-    expiries = meta.loc[
+    expiries = sorted(meta.loc[
         meta["is_expiry"]
-        & (meta["trade_date"].dt.date >= FORWARD_START), "trade_date"]
+        & (meta["trade_date"].dt.date >= FORWARD_START), "trade_date"])
+    expiry_set = {pd.Timestamp(td).normalize() for td in expiries}
+    calendar_max = meta["trade_date"].max()
+
+    ledger = owner_log.load_forward_ratings(journal_dir)
+    bad = (set(ledger["outcome"].astype(str)) - set(VALID_OUTCOMES)
+           if len(ledger) else set())
+    if bad:
+        raise ValueError(f"ratings_forward.csv has unknown outcome values "
+                         f"{sorted(bad)} — allowed: {VALID_OUTCOMES}")
+    by_date: dict[pd.Timestamp, tuple] = {}
+    for row in ledger.itertuples():
+        d = pd.Timestamp(row.session_date).normalize()
+        if d in by_date:
+            raise ValueError(
+                f"ratings_forward.csv has duplicate rows for {d.date()}")
+        # the bhavcopy calendar is the authority on expiry-ness: any ledger
+        # row inside the calendar's range must agree with it
+        if d <= calendar_max and bool(row.is_nifty_expiry) != (d in expiry_set):
+            raise ValueError(
+                f"ratings_forward.csv row {d.date()}: is_nifty_expiry="
+                f"{row.is_nifty_expiry} contradicts the bhavcopy calendar")
+        by_date[d] = row
 
     sessions, trades = owner_log.load_journal(journal_dir)
     trades = owner_log.attach_mae(trades, asof, root=root)
@@ -79,19 +113,39 @@ def assemble(asof: datetime | None = None, root: Path | None = None,
     flagged_gross = (nifty[nifty["discipline_flag"] == True]  # noqa: E712
                      .groupby("session_date")["gross_pnl"].sum().to_dict())
 
-    rows, unrated = [], []
-    for td in sorted(expiries):
-        x = _rating_for(td, wi)
-        if x is None:
-            unrated.append(str(td.date()))
+    rows, unrated, pending = [], [], []
+    for td in expiries:
+        key = pd.Timestamp(td).normalize()
+        row = by_date.get(key)
+        if row is None:
+            # no emission recorded -> the console showed nothing that
+            # morning. Only the ledger can witness this; the store cannot.
+            unrated.append(str(key.date()))
             continue
-        y = float(day_net.get(td, 0.0))
+        x = float(row.wi_pctile_252)
+        if not np.isfinite(x):
+            raise ValueError(f"ratings_forward.csv row {key.date()} has no "
+                             f"usable wi_pctile_252")
+        outcome = str(row.outcome)
+        if outcome == "pending":
+            pending.append(str(key.date()))
+            continue
+        journaled = key in day_net
+        if outcome == "traded" and not journaled:
+            raise ValueError(
+                f"{key.date()}: ledger outcome 'traded' but the journal has "
+                f"no NSE session row — transcribe the contract note first")
+        if outcome == "abstained" and journaled:
+            raise ValueError(
+                f"{key.date()}: ledger outcome 'abstained' but the journal "
+                f"has an NSE session row — finalize as 'traded' instead")
+        y = float(day_net.get(key, 0.0))
         rows.append({
             "session_date": td, "wi_pctile": x, "day_net_pnl": y,
-            "abstained": td not in day_net,
-            "y_clean": y - float(flagged_gross.get(td, 0.0)),
+            "abstained": outcome == "abstained",
+            "y_clean": y - float(flagged_gross.get(key, 0.0)),
         })
-    return pd.DataFrame(rows), unrated
+    return pd.DataFrame(rows), unrated, pending
 
 
 def _assemble_unbounded(asof: datetime, root: Path | None = None,
@@ -192,25 +246,38 @@ def run_holdout_replication(asof: datetime, root: Path | None = None) -> dict:
 def run(asof: datetime | None = None, root: Path | None = None,
         journal_dir: Path | None = None) -> dict:
     asof = asof or datetime.now(timezone.utc)
-    frame, unrated = assemble(asof, root=root, journal_dir=journal_dir)
+    frame, unrated, pending = assemble(asof, root=root, journal_dir=journal_dir)
     n = len(frame)
 
     if n < MIN_SESSIONS:
         if asof.date() <= DEADLINE:
             raise SingleLookError(
-                f"only {n}/{MIN_SESSIONS} rated forward sessions have accrued "
-                f"— the pre-registration forbids computing the association "
-                f"before the sample is complete (deadline {DEADLINE})")
+                f"only {n}/{MIN_SESSIONS} finalized rated forward sessions "
+                f"have accrued ({len(pending)} pending, {len(unrated)} "
+                f"unrated-excluded) — the pre-registration forbids computing "
+                f"the association before the sample is complete "
+                f"(deadline {DEADLINE})")
         return {  # deadline passed with an incomplete log: operational failure
             "study": "H-004", "n_days": int(n),
             "sample": [str(FORWARD_START), str(DEADLINE)],
-            "unrated_sessions": unrated, "gates": [
+            "unrated_sessions": unrated, "pending_sessions": pending,
+            "gates": [
                 {"name": "accrual", "passed": False,
                  "detail": f"{n}/{MIN_SESSIONS} rated sessions by {DEADLINE}"}],
             "verdict": "NO-GO",
         }
 
     frame = frame.iloc[:MIN_SESSIONS].reset_index(drop=True)  # exactly 40
+    # a still-pending emission dated inside the first 40 means the true
+    # sequence is not settled — finalize it before the single look, or the
+    # slice above would silently promote session #41 into the sample
+    blocking = [d for d in pending
+                if pd.Timestamp(d) <= frame["session_date"].max()]
+    if blocking:
+        raise RuntimeError(
+            f"sessions {blocking} are still outcome='pending' inside the "
+            f"first {MIN_SESSIONS} — finalize each (traded/abstained) "
+            f"before the single evaluation")
     x = frame["wi_pctile"].to_numpy()
     y = frame["day_net_pnl"].to_numpy()
 
@@ -278,6 +345,7 @@ def run(asof: datetime | None = None, root: Path | None = None,
         },
         "holdout_replication": holdout,
         "unrated_sessions": unrated,
+        "pending_sessions": pending,
         "gates": [{"name": g.name, "passed": bool(g.passed),
                    "detail": g.detail} for g in gates],
         "verdict": verdict,

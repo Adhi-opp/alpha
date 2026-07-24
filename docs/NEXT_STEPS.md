@@ -195,6 +195,20 @@ verdict:
   `scripts/owner_log_report.py` reports retro seed vs forward count
   honestly (the retro sessions are EXCLUDED from H-004 by the frozen
   pre-registration).
+- **Sample-source integrity (patched 2026-07-24):** the emission ledger is
+  H-004's ONLY sample source. `h004.assemble` takes X verbatim from
+  `ratings_forward.csv` and never reconstructs a rating from participant
+  files after the fact — a backfilled file cannot witness what the console
+  showed that morning. 2026-07-21 is the standing example: NIFTY expiry,
+  fetch dead, nothing emitted → unrated, excluded AND disclosed, even
+  though the Jul-15..23 backfill later restored its T-1 file. Outcomes:
+  `pending` (excluded until finalized — never a silent Y=0) → `traded`
+  (Y = journaled day net) or `abstained` (Y = 0). Rows are written only by
+  `scripts/emit_rating.py` (pre-open only; stale/history guards enforced at
+  emission) and settled by `--finalize traded|abstained`. Jul-14's row
+  carries its permanent caveat: emitted 21:07 IST post-close (clock
+  incident) — PIT-computable from the frozen T-1 file per the frozen rule,
+  but never describable as a verdict delivered pre-open.
 
 ## Standing rules (apply to every step above)
 

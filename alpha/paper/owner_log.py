@@ -43,6 +43,12 @@ def plausible_charges_hi(turnover: float) -> float:
 #: journal sessions BEFORE this are the retro seed, excluded from H-004)
 H004_FORWARD_START = pd.Timestamp("2026-07-14")
 H004_TARGET = 40
+#: emission guards, mirror of the frozen H-004 text: a rating may only be
+#: emitted from a participant file at most this stale, over at least this
+#: much wi history. Enforced HERE (at emission) — never re-applied after
+#: the fact by the evaluator, which trusts only the emission ledger.
+H004_MAX_STALE_DAYS = 4
+H004_MIN_WI_HISTORY = 20
 _CONTRACT_RE = re.compile(
     r"^(NIFTY|SENSEX)(\d{2})([1-9OND])(\d{2})(\d+)(CE|PE)$")
 
@@ -229,6 +235,117 @@ def load_forward_ratings(journal_dir: Path | None = None) -> pd.DataFrame:
             f"{[str(x.date()) for x in bad['session_date']]} — the retro "
             f"seed is excluded from H-004 by the frozen pre-registration")
     return df
+
+
+def compute_forward_rating(session_date, asof: datetime | None = None,
+                           root: Path | None = None) -> dict:
+    """The pre-open rating for one session, computed for EMISSION into
+    ratings_forward.csv — the console formula (most recent strictly-prior
+    wi file vs its trailing 252) behind the frozen guards. Raises when the
+    stale guard or history floor fails: a refused emission is how a session
+    goes unrated (excluded AND disclosed), never a silent number."""
+    asof = asof or datetime.now(timezone.utc)
+    session_date = pd.Timestamp(session_date).normalize()
+    wi = client_write_intensity(pit.load("participant_oi", asof, root=root))
+    hist = wi[wi["trade_date"] < session_date]
+    if len(hist) < H004_MIN_WI_HISTORY:
+        raise ValueError(
+            f"only {len(hist)} wi files precede {session_date.date()} — "
+            f"history floor is {H004_MIN_WI_HISTORY}")
+    cond_date = hist["trade_date"].iloc[-1]
+    stale_days = int((session_date - cond_date).days)
+    if stale_days > H004_MAX_STALE_DAYS:
+        raise ValueError(
+            f"freshest participant file {cond_date.date()} is {stale_days} "
+            f"days before {session_date.date()} (guard "
+            f"{H004_MAX_STALE_DAYS}) — the console would show no verdict; "
+            f"the session goes unrated")
+    tail = hist["wi"].tail(252)
+    pctile = round(float((tail <= float(tail.iloc[-1])).mean() * 100), 1)
+    bhav = pit.load("fo_bhavcopy", asof, root=root,
+                    columns=["symbol", "instrument", "expiry", "trade_date",
+                             "available_at"])
+    expiries = set(pd.to_datetime(
+        bhav.loc[(bhav["symbol"] == "NIFTY") & (bhav["instrument"] == "IDO"),
+                 "expiry"]).dt.normalize().unique())
+    return {"session_date": str(session_date.date()),
+            "wi_pctile_252": pctile, "tier": _tier(pctile),
+            "is_nifty_expiry": bool(session_date in expiries),
+            "computed_from": str(cond_date.date())}
+
+
+def emit_forward_rating(session_date, asof: datetime | None = None,
+                        root: Path | None = None,
+                        journal_dir: Path | None = None, note: str = "",
+                        now_ist=None) -> dict:
+    """Append one PENDING rating row for session_date — the act that makes
+    the session ratable in H-004. Refuses pre-forward dates, duplicates,
+    and any emission at/after the session's 09:15 IST open: a post-open
+    emission is not a pre-open verdict, and a missed emission = the session
+    goes unrated, which is the honest outcome (frozen rule)."""
+    d = journal_dir or JOURNAL_DIR
+    session_date = pd.Timestamp(session_date).normalize()
+    if session_date < H004_FORWARD_START:
+        raise ValueError(f"{session_date.date()} predates the H-004 forward "
+                         f"start {H004_FORWARD_START.date()}")
+    now_ist = (pd.Timestamp(now_ist) if now_ist is not None
+               else pd.Timestamp(datetime.now(IST)))
+    if now_ist.tzinfo is None:
+        now_ist = now_ist.tz_localize(IST)
+    open_ts = session_date.tz_localize(IST) + pd.Timedelta(hours=9, minutes=15)
+    if now_ist >= open_ts:
+        raise ValueError(
+            f"{session_date.date()} opened at 09:15 IST — an emission at "
+            f"{now_ist.strftime('%Y-%m-%dT%H:%M')} is post-open and is "
+            f"refused; the session goes unrated (frozen H-004 rule)")
+    existing = load_forward_ratings(journal_dir)
+    if len(existing) and (existing["session_date"].dt.normalize()
+                          == session_date).any():
+        raise ValueError(f"rating for {session_date.date()} already emitted")
+    row = {**compute_forward_rating(session_date, asof, root),
+           "emitted_at_ist": now_ist.strftime("%Y-%m-%dT%H:%M"),
+           "outcome": "pending", "note": note}
+    out = (existing.assign(
+        session_date=existing["session_date"].dt.date.astype(str))
+        if len(existing) else pd.DataFrame(columns=list(row)))
+    out = pd.concat([out, pd.DataFrame([row])], ignore_index=True)
+    out.to_csv(d / "ratings_forward.csv", index=False)
+    return row
+
+
+def finalize_forward_rating(session_date, outcome: str,
+                            journal_dir: Path | None = None) -> dict:
+    """Flip a pending emission to its settled outcome, cross-checked
+    against the journal: 'traded' requires the session's NSE journal row
+    (contract note transcribed first), 'abstained' requires its absence."""
+    if outcome not in ("traded", "abstained"):
+        raise ValueError(f"outcome must be traded|abstained, got {outcome!r}")
+    d = journal_dir or JOURNAL_DIR
+    session_date = pd.Timestamp(session_date).normalize()
+    ledger = load_forward_ratings(journal_dir)
+    mask = ledger["session_date"].dt.normalize() == session_date
+    if not len(ledger) or not mask.any():
+        raise ValueError(f"no emitted rating for {session_date.date()}")
+    current = str(ledger.loc[mask, "outcome"].iloc[0])
+    if current != "pending":
+        raise ValueError(f"{session_date.date()} is already finalized as "
+                         f"{current!r}")
+    sessions, _ = load_journal(journal_dir)
+    journaled = bool(((sessions["exchange"] == "NSE")
+                      & (sessions["session_date"] == session_date)).any())
+    if outcome == "traded" and not journaled:
+        raise ValueError(
+            f"'traded' requires an NSE journal session row for "
+            f"{session_date.date()} — transcribe the contract note first")
+    if outcome == "abstained" and journaled:
+        raise ValueError(
+            f"the journal has an NSE session row for {session_date.date()} "
+            f"— finalize as 'traded' instead")
+    ledger.loc[mask, "outcome"] = outcome
+    ledger.assign(
+        session_date=ledger["session_date"].dt.date.astype(str)
+    ).to_csv(d / "ratings_forward.csv", index=False)
+    return {k: v for k, v in ledger.loc[mask].iloc[0].items()}
 
 
 def summary(asof: datetime | None = None, root: Path | None = None,
