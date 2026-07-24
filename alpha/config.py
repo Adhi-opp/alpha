@@ -11,6 +11,12 @@ DERIVED_ROOT = DATA_ROOT / "derived"
 
 IST = timezone(timedelta(hours=5, minutes=30), "IST")
 
+# Runtime bridge between the live cockpit process and the console webpage:
+# the cockpit atomically replaces this JSON every ~2 s; the console only
+# READS it (the firewall forbids alpha.console importing alpha.live — the
+# file IS the contract). Neither process depends on the other being alive.
+LIVE_RUNTIME_SNAPSHOT = DATA_ROOT / "live" / "_runtime" / "cockpit_runtime.json"
+
 # First trade date published in UDiFF format (BhavCopy_NSE_FO_...); earlier
 # dates use legacy foDDMMMYYYYbhav.csv.zip. Both fetchers verified live
 # 2026-07-07 (UDiFF: 2026-07-06 file; legacy: 2024-01-05 file).

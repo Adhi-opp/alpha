@@ -27,7 +27,8 @@ import pandas as pd                                             # noqa: E402
 from alpha.config import IST                                    # noqa: E402
 from alpha.live import replay                                   # noqa: E402
 from alpha.live.auth import load_upstox_token                   # noqa: E402
-from alpha.live.cockpit import Cockpit                          # noqa: E402
+from alpha.live.cockpit import (Cockpit, publish_runtime,       # noqa: E402
+                                runtime_payload)
 from alpha.live.collector import SessionCapture                 # noqa: E402
 
 
@@ -114,7 +115,7 @@ def _todays_rating(session_date: str) -> dict | None:
     return hit.iloc[0].to_dict() if len(hit) else None
 
 
-def run_replay(session_dir: Path, snap_json: bool) -> int:
+def run_replay(session_dir: Path, snap_json: bool, publish: bool) -> int:
     session_file = session_dir / "session.json"
     imap = {}
     if session_file.exists():
@@ -133,6 +134,12 @@ def run_replay(session_dir: Path, snap_json: bool) -> int:
         out.write_text(json.dumps(cp.snapshot(), indent=2, default=str),
                        encoding="utf-8")
         print(f"[snapshot -> {out}]")
+    if publish:
+        payload = runtime_payload(
+            cp, run={"run_id": session_dir.name, "label": "replay",
+                     "day": day}, mode="replay")
+        print("[runtime published]" if publish_runtime(payload)
+              else "[runtime publish FAILED]")
     return 0
 
 
@@ -169,17 +176,34 @@ async def run_live(minutes: float | None, keep_raw: bool) -> int:
     cap.cockpit.set_rating(
         _todays_rating(datetime.now(IST).strftime("%Y-%m-%d")))
 
+    def _run_meta() -> dict:
+        return {"run_id": cap.run_id, "label": cap.label,
+                "day": cap.dir.parent.name,
+                "queue_high_water": cap._queue_high_water,
+                "queue_max": cap.queue_max,
+                "queue_overflows": cap._queue_overflows,
+                "degraded_reason": cap._degraded_reason}
+
     async def _render_loop():
+        # render + publish live in the same 2 s cadence. Publishing is a
+        # best-effort tee to the console webpage: it runs OUTSIDE the recv
+        # path, and a failed write (or no console running at all) changes
+        # nothing about the capture.
         while True:
             await asyncio.sleep(2)
             import time
             print("\x1b[2J\x1b[H" + render(cap.cockpit, time.time_ns()))
+            payload = runtime_payload(cap.cockpit, _run_meta(), mode="live")
+            await asyncio.to_thread(publish_runtime, payload)
 
     render_task = asyncio.create_task(_render_loop())
     try:
         manifest = await cap.run()
     finally:
         render_task.cancel()
+        # final publish so the browser shows the session's end state
+        publish_runtime(runtime_payload(cap.cockpit, _run_meta(),
+                                        mode="live"))
     print(render(cap.cockpit))
     print(f"[capture -> {cap.dir}]")
     degraded = (manifest.get("metadata") or {}).get("degraded_reason")
@@ -193,11 +217,14 @@ def main(argv=None) -> int:
     g.add_argument("--live", action="store_true")
     ap.add_argument("--snap", action="store_true",
                     help="with --replay: also write cockpit_snapshot.json")
+    ap.add_argument("--publish", action="store_true",
+                    help="with --replay: publish the reduced snapshot to "
+                         "the console runtime bridge (browser preview)")
     ap.add_argument("--minutes", type=float, default=None)
     ap.add_argument("--keep-raw", action="store_true")
     args = ap.parse_args(argv)
     if args.replay:
-        return run_replay(Path(args.replay), args.snap)
+        return run_replay(Path(args.replay), args.snap, args.publish)
     return asyncio.run(run_live(args.minutes, args.keep_raw))
 
 

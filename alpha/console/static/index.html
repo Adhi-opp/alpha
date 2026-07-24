@@ -210,6 +210,38 @@
       </div></div>
   </div>
 
+  <style>
+    .lv-chip{ font-family:var(--font-mono); font-size:11.5px; font-weight:700;
+      letter-spacing:.06em; padding:5px 11px; border-radius:99px; }
+    .lv-ok{ color:var(--go); background:var(--go-wash); border:1px solid var(--go); }
+    .lv-warn{ color:var(--caution); background:var(--caution-wash); border:1px solid var(--caution); }
+    .lv-bad{ color:var(--stop); background:var(--stop-wash); border:1px solid var(--stop); }
+    .lv-off{ color:var(--ink-faint); background:var(--surface-2); border:1px solid var(--line); }
+    .lv-meta{ font-family:var(--font-mono); font-size:11px; color:var(--ink-faint); }
+    .lv-sym h4{ font-family:var(--font-mono); font-size:14px; margin:0 0 4px; }
+    .lv-line{ font-family:var(--font-mono); font-size:12.5px; color:var(--ink-muted); margin:3px 0; }
+    .lv-line b{ color:var(--ink); }
+    .lv-note{ font-size:11.5px; color:var(--ink-faint); margin-top:6px; }
+  </style>
+  <section class="card" id="livedesk" style="margin-bottom:16px">
+    <h3>Live Desk <span class="eyebrow">cockpit v1.1 · descriptive only · altimeter, not co-pilot</span></h3>
+    <p class="note">Rendered verbatim from the capture process's runtime snapshot — every number is
+      simultaneously recorded and replayable. No calculations happen in this page. No controls exist here:
+      nothing on this desk can emit a rating, touch the journal, alter a capture or place an order.</p>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0 4px">
+      <span class="lv-chip lv-off" id="lv-banner">NOT RUNNING</span>
+      <span class="lv-meta" id="lv-run">start scripts\cockpit.py --live (or --replay --publish for a preview)</span>
+    </div>
+    <div class="lv-line" id="lv-health"></div>
+    <div class="lv-line" id="lv-rating">pre-open rating: —</div>
+    <hr class="hr">
+    <div class="grid two" id="lv-symbols" style="margin-bottom:0"></div>
+    <p class="lv-note">Labels are deliberate: <b>captured-band max-pain proxy</b> (ATM band only, first
+      migration sample can reflect a partial book) · <b>OI concentration proxy</b> (public chain data — no
+      "dealer" claims) · <b>indicative</b> all-in hurdle (mid-based) · tick path length includes bid/ask
+      bounce and is <b>not capturable energy</b>.</p>
+  </section>
+
   <section class="ticket">
     <div class="top"><span class="glyph" style="color:var(--go)">▸ WHEN A TICKET FIRES, IT LOOKS LIKE THIS</span>
       <span class="chip" style="color:var(--go);border-color:var(--go);background:var(--go-wash)">example · illustrative</span></div>
@@ -300,6 +332,85 @@ async function refresh(){
 }
 refresh();
 setInterval(refresh, 60000);
+</script>
+<script>
+/* Live Desk — pure formatting of /api/live/stream frames. No math beyond
+   display formatting; freshness is decided server-side (payload.stale)
+   plus a local no-frames watchdog for a dead console process. */
+(function(){
+  const $ = id => document.getElementById(id);
+  const num = (v, d=2) => (v==null || Number.isNaN(v)) ? "—"
+    : Number(v).toLocaleString("en-IN", {minimumFractionDigits:d, maximumFractionDigits:d});
+  const int0 = v => (v==null) ? "—" : Number(v).toLocaleString("en-IN", {maximumFractionDigits:0});
+  let lastFrameAt = 0;
+
+  function chip(cls, text){ const el=$("lv-banner");
+    el.className = "lv-chip " + cls; el.textContent = text; }
+
+  function bannerClass(p){
+    if (!p.available) return ["lv-off","NOT RUNNING"];
+    const b = (((p.snapshot||{}).health)||{}).banner || "—";
+    if (p.stale) return ["lv-bad","STALE — no fresh snapshot ("+p.age_s+"s)"];
+    if (b.startsWith("DEGRADED")) return ["lv-bad", b];
+    if (b.startsWith("STALE")) return ["lv-warn", b];
+    if (b.startsWith("MARKET CLOSED")) return ["lv-warn", b];
+    if (b === "SESSION ENDED") return ["lv-off", (p.mode==="replay"?"REPLAY · ":"") + b];
+    return ["lv-ok", b];
+  }
+
+  function symCard(sym, d, spots, expiries){
+    const mp = d.max_pain || {}; const hist = mp.history || [];
+    const migr = hist.slice(-4).map(h => int0(h[1])).join(" → ") || "—";
+    const walls = (d.walls||[]).map(w =>
+      `<tr><td>${int0(w.strike)}</td><td>${int0(w.ce_oi)}</td><td>${int0(w.d_ce)}</td>`+
+      `<td>${int0(w.pe_oi)}</td><td>${int0(w.d_pe)}</td></tr>`).join("");
+    const spread = (d.spread||[]).map(r =>
+      `<tr><td>${int0(r.strike)} ${r.side}</td><td>${num(r.bid)}</td><td>${num(r.ask)}</td>`+
+      `<td>${num(r.spread)}</td><td>${num(r.spread_pct)}</td><td>${num(r.breakeven_pct)}</td></tr>`).join("");
+    const churn = d.churn || {};
+    return `<div class="lv-sym">
+      <h4>${sym}</h4>
+      <div class="lv-line">spot <b>${num(spots[sym])}</b> · ATM <b>${int0(d.atm)}</b> · expiry <b>${expiries[sym]||"—"}</b></div>
+      <div class="lv-line">captured-band max-pain proxy <b>${int0(mp.strike)}</b> · migration ${migr}</div>
+      <div class="scroll"><table><thead><tr><th>strike</th><th>CE OI</th><th>ΔCE</th><th>PE OI</th><th>ΔPE</th></tr></thead>
+        <tbody>${walls}</tbody></table></div>
+      <div class="scroll" style="margin-top:8px"><table><thead><tr><th>strike</th><th>bid</th><th>ask</th><th>spr</th><th>spr%</th><th>ind be%</th></tr></thead>
+        <tbody>${spread}</tbody></table></div>
+      <div class="lv-line" style="margin-top:8px">ATM tick path length <b>₹${int0(churn.tick_path_rs_per_lot)}</b>/lot
+        <span class="lv-meta">(incl. bid/ask bounce — not capturable)</span></div>
+    </div>`;
+  }
+
+  function renderLive(p){
+    const [cls, text] = bannerClass(p);
+    chip(cls, text);
+    if (!p.available){ $("lv-run").textContent =
+      "start scripts\\cockpit.py --live (or --replay --publish for a preview)"; return; }
+    const run = p.run || {}, s = p.snapshot || {}, h = s.health || {};
+    $("lv-run").textContent = `${p.mode} · run ${run.day||"?"}/${run.label||"?"}_${run.run_id||"?"} · snapshot age ${p.age_s}s`;
+    $("lv-health").textContent =
+      `tick rate ${num(h.tick_rate_10s,1)}/s · instruments ${int0(h.n_instruments)} · ` +
+      `reconnects ${int0(h.reconnects)} · errors ${int0(h.errors)} · ` +
+      `queue ${int0(run.queue_high_water)}/${int0(run.queue_max)}` +
+      (run.degraded_reason ? ` · DEGRADED: ${run.degraded_reason}` : "");
+    const r = p.rating;
+    $("lv-rating").textContent = r
+      ? `pre-open rating (frozen, emitted ${r.emitted_at_ist}): ${r.tier} ${r.wi_pctile_252} — outcome ${r.outcome}`
+      : "pre-open rating: NONE EMITTED — session unrated for H-004 unless emit_rating.py ran pre-open";
+    const per = s.per_symbol || {};
+    $("lv-symbols").innerHTML = Object.keys(per).sort().map(sym =>
+      `<div>${symCard(sym, per[sym], s.spots||{}, s.expiries||{})}</div>`).join("");
+  }
+
+  const es = new EventSource("/api/live/stream");
+  es.onmessage = e => { lastFrameAt = Date.now(); renderLive(JSON.parse(e.data)); };
+  es.onerror = () => chip("lv-bad", "STALE — console stream lost (retrying)");
+  setInterval(() => {           /* dead-console watchdog */
+    if (lastFrameAt && Date.now() - lastFrameAt > 7000)
+      chip("lv-bad", "STALE — no frames from console");
+  }, 2000);
+  fetch("/api/live/snapshot").then(r => r.json()).then(renderLive).catch(()=>{});
+})();
 </script>
 </body>
 </html>

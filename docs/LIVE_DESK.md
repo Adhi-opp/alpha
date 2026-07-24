@@ -13,9 +13,11 @@ claim.
    real signal→fill latency at the paper stage, and seconds-level MAE for
    the owner log (the 1-min floor disappears for future sessions).
 2. **A descriptive in-session cockpit** ("altimeter, not co-pilot"): OI
-   walls + max pain with live migration, live spread width per strike (=
-   the cost hurdle right now), intraday scalp-energy accumulation vs the
-   H-003 pre-open rating. NO operational instructions, ever.
+   concentration proxy + captured-band max-pain proxy with live
+   migration, live spread width per strike (= the INDICATIVE all-in
+   hurdle; mid-based until ask-entry/bid-exit costing is implemented),
+   ATM tick path length vs the H-003 pre-open rating. NO operational
+   instructions, ever.
 3. **A capture-first laboratory:** every session recorded becomes replayable
    data. Intraday claims (the owner's OI-wall test, IV-crush timing, a
    reformulated gamma hypothesis) get tested as pre-registered studies on
@@ -180,6 +182,47 @@ live and replay are the same function — verified by replaying probe #2's
 - **emission hygiene** — `emit_rating.py` additionally refuses
   non-expiry sessions (a mistaken Monday emission would only inflate the
   emission count; H-004 samples expiry sessions only).
+
+## Browser cockpit v1.1 — BUILT 2026-07-24, HTTP-verified same day
+
+The console webpage (:8787) now carries a **Live Desk** section beneath
+the existing Decision Desk panels, rendered from the SAME reducer — no
+calculation exists in JavaScript; the page formats `Cockpit.snapshot()`
+verbatim.
+
+Architecture — three isolated failure domains bridged by one file:
+
+```text
+cockpit --live process        console (FastAPI, 127.0.0.1:8787)   browser
+  reducer + terminal board      /api/live/snapshot (GET)            EventSource
+  publishes atomic JSON    ->   /api/live/stream   (SSE 2 s)   ->   render only
+  every 2 s (tmp+os.replace)    reads the file, NEVER imports
+  data/live/_runtime/           the live package (firewall test)
+  cockpit_runtime.json
+```
+
+- A browser disconnect, console crash, or absent console changes NOTHING
+  about the capture: publishing is best-effort (`publish_runtime` returns
+  False instead of raising) and runs in the render task, never the recv
+  path. The recorder lifecycle is not coupled to any web connection.
+- Only allowlisted capture telemetry crosses the bridge (run id, label,
+  day, queue stats, degraded reason) — never tokens, never raw frames;
+  the payload is tested credential-free.
+- Freshness is decided server-side: no fresh file for >6 s in live mode
+  = `stale: true` and the page banner flips STALE; the page also has a
+  dead-console watchdog (no SSE frames >7 s). A replayed snapshot is a
+  static preview and never reads as stale. SSE primes `retry:` so
+  EventSource auto-reconnects.
+- The page shows the exact source run id (`day/label_runid`), the frozen
+  pre-open rating (or NONE EMITTED), and the same labelled panels as the
+  terminal: captured-band max-pain proxy, OI concentration proxy,
+  indicative all-in hurdle (NSE + BSE), tick path length marked
+  non-capturable. NO mutating controls of any kind exist on the page.
+- Terminal mode stays the operational fallback — same board, same
+  reducer, zero web dependencies.
+
+Weekend preview without a market: `cockpit.py --replay <dir> --publish`
+puts that session's board on the webpage (marked `replay`).
 
 NO tickets, no entry arrows, no predictions, no order hooks — ever.
 

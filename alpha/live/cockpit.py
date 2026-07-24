@@ -331,10 +331,11 @@ class Cockpit:
 
     def snapshot(self) -> dict:
         """Deterministic full-state view (the replay/live agreement and
-        determinism tests hash this)."""
+        determinism tests hash this; the browser renders it verbatim)."""
         return {
             "counts": dict(sorted(self.counts.items())),
             "spots": dict(sorted(self.spots.items())),
+            "expiries": dict(sorted(self.expiries.items())),
             "segments": dict(sorted(self.segments.items())),
             "health": self.feed_health(),
             "per_symbol": {
@@ -346,3 +347,57 @@ class Cockpit:
                 for sym in sorted(self.symbols)
             },
         }
+
+
+# ---- runtime bridge (cockpit process -> console webpage) ----------------
+#
+# The live cockpit atomically replaces a small JSON file every ~2 s; the
+# console (which may NOT import this package — firewall) reads and serves
+# it over SSE. Publishing must never be able to disturb the capture: it
+# runs in the render task (never the recv path), and failures return False
+# instead of raising.
+
+RUNTIME_SCHEMA = "cockpit-runtime-v1"
+#: only these capture-metadata keys may cross the bridge — never the
+#: token, never raw frames
+_CAPTURE_FIELDS = ("run_id", "label", "day", "queue_high_water",
+                   "queue_max", "queue_overflows", "degraded_reason")
+
+
+def runtime_payload(cp: Cockpit, run: dict, mode: str = "live",
+                    now_ns: int | None = None) -> dict:
+    """The full browser contract: reducer snapshot + run identity +
+    bounded capture telemetry. No calculations happen downstream of this
+    — the page formats these values, nothing more."""
+    import time as _time
+    now_ns = now_ns if now_ns is not None else _time.time_ns()
+    return {
+        "schema": RUNTIME_SCHEMA,
+        "mode": mode,                          # "live" | "replay"
+        "published_at_ns": now_ns,
+        "run": {k: run.get(k) for k in _CAPTURE_FIELDS},
+        "rating": cp.rating,
+        "snapshot": cp.snapshot() if mode == "replay"
+        else {**cp.snapshot(), "health": cp.feed_health(now_ns)},
+    }
+
+
+def publish_runtime(payload: dict, path=None) -> bool:
+    """Atomic tmp+replace write of the runtime file. Returns False on ANY
+    failure — the bridge is best-effort by design; recording must never
+    depend on it."""
+    import json
+    import os
+    from alpha.config import LIVE_RUNTIME_SNAPSHOT
+    target = path or LIVE_RUNTIME_SNAPSHOT
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_suffix(".tmp")
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, separators=(",", ":"), default=str)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, target)
+        return True
+    except OSError:
+        return False
