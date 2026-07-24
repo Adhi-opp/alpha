@@ -134,6 +134,39 @@ findings file (docs/UPSTOX_FINDINGS.md, from real output — no guesses):
    IV-crush timing, gamma-concentration reformulation, then the first
    shadow ML state model.
 
+## Cockpit v1 — BUILT 2026-07-24, replay-verified same day
+
+`alpha/live/cockpit.py` is ONE pure reducer over the recorded event
+stream; live mode tees the same events into it on the collector path, so
+live and replay are the same function — verified by replaying probe #2's
+69,500-event recording twice: byte-identical snapshots
+(`cockpit_snapshot.json`, hash-checked). Panels, all descriptive:
+
+- **feed** — banner (OK / STALE / MARKET CLOSED / DEGRADED), 10-s tick
+  rate, reconnects/errors, subscription churn.
+- **live hurdle** — top-of-book quoted spread per ATM±width strike plus
+  the statutory round trip = all-in breakeven % of premium. Probe #2
+  measured NIFTY ATM full spreads 0.15–0.26% of premium (half-spread
+  ≈ 0.08–0.13% — about HALF the 0.25% estimate the studies carry) and
+  all-in breakevens ~0.8–1.4%. Display only: frozen studies keep their
+  registered inputs until a registered study replaces the estimate.
+  SENSEX shows quoted spread only (no BSE-fitted statutory model yet).
+- **OI concentration (proxy)** — per-strike CE/PE OI + intraday delta
+  (vs first-seen). Inference label; never "dealer GEX" (G002 stands).
+  Probe #2: 23800 PE 13.9M / 24000 CE 16.3M walls.
+- **max pain + migration** — standard payout-minimizing arithmetic,
+  sampled every 500th OI tick (event-count-driven -> deterministic in
+  replay). KNOWN ARTIFACT: the first history sample lands while initial
+  snapshots are still arriving, so the earliest migration entry can
+  reflect a partial book (probe #2: NIFTY "23400" first sample); read
+  migration from the second entry onward early in a session.
+- **ATM pair gross premium churn vs statutory hurdle** — DESCRIPTIVE,
+  deliberately NOT h003.scalp_energy (different formula; the name stays
+  reserved for the frozen study). Also shows the frozen pre-open rating
+  (from `journal/ratings_forward.csv`) or "NONE EMITTED".
+
+NO tickets, no entry arrows, no predictions, no order hooks — ever.
+
 ## Commands
 
 ```text
@@ -145,6 +178,16 @@ findings file (docs/UPSTOX_FINDINGS.md, from real output — no guesses):
 # Normalized full-session capture; no order hooks. Add --keep-raw only when
 # the additional raw storage is wanted explicitly.
 .venv\Scripts\python scripts\live_capture.py
+
+# Cockpit: capture normally AND render the board every 2 s (Monday flow),
+# or reduce any recorded session offline — same reducer, same numbers.
+.venv\Scripts\python scripts\cockpit.py --live
+.venv\Scripts\python scripts\cockpit.py --replay data\live\<day>\<run-dir> --snap
+
+# H-004 rating emission (pre-open ONLY; the ledger row this writes is the
+# promotion test's sole sample source — no row, session goes unrated):
+.venv\Scripts\python scripts\emit_rating.py
+.venv\Scripts\python scripts\emit_rating.py --date <session> --finalize traded|abstained
 
 # OPTIONAL fallback only (no daily-login requirement): mint a daily OAuth
 # token when no analytics token is available. Interactive browser approval;
