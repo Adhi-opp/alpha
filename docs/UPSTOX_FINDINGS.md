@@ -18,6 +18,36 @@ token was not yet in `.env`). Normal Alpha operation uses the Analytics
 Token; its REST + websocket behavior must be verified once when it lands
 (the probe does both on every run).
 
+## Probe #2 — 2026-07-24 ~14:12 IST (MARKET OPEN; gate = GREEN) ✅
+
+Recording: `data/live/2026-07-24/probe_141223_431602_fb5cf8d4/` (raw kept).
+The market-hours gate the project was blocked on. Clock verified correct
+(preflight skew **−0.35 s**), analytics token, both gate segments
+NORMAL_OPEN. Everything PENDING after probe #1 is now measured:
+
+- **Live streaming CONFIRMED:** 69,400 `live_feed` messages (probe #1: 0),
+  66,514 option ticks + 2,978 index ticks over 597 s = **111 ticks/s**
+  across 86 subscribed instruments; 92 `initial_feed` snapshots on connect.
+- **Field coverage (option ticks):** depth-5 100%, oi 100%, tbq 100%,
+  atp 100%, iv 97.8%, gamma 97.8%. The full instrument set the cockpit
+  needs — per-strike spreads, OI, greeks — is on the wire in `full` mode
+  on this analytics token (`isPlusPlan: false`).
+- **Retarget drill:** unsub 2 wing strikes → resub → first tick = **40 ms**.
+  The static-band + measured-retarget design works and is fast.
+- **Clocks:** provider-vs-local preflight skew −0.35 s; per-tick receipt
+  skew median −348 ms / p95 −324 ms (network + provider stamp lag — the
+  local clock is sound). Exchange `ltt` runs ~1 s ahead of receipt.
+- **Recorder under real load:** 44 KB/s raw (≈1 GB per full 6.25 h session
+  if `--keep-raw`; normalized events far smaller), queue high-water
+  **4 / 10,000**, **0 reconnects, 0 errors, 0 degradation**. Replayable.
+- **Front-week resolution live:** NIFTY 2026-07-28 (105 strikes, band
+  23300..24300), SENSEX 2026-07-30 (189 strikes, band 75100..77100),
+  both futures resolved.
+
+**Gate GREEN with zero failures.** The cockpit build (walls, max pain,
+spread-vs-hurdle, energy-vs-rating) and seconds-level spread/MAE extraction
+are unblocked. Next: full-session `live_capture.py` runs, then the desk.
+
 ## Probe #1 — 2026-07-14 ~21:22 IST (MARKET CLOSED; gate = PARTIAL)
 
 Recording: `data/live/2026-07-14/probe_092152_014524_4cd0fae0/` (raw kept).
