@@ -11,18 +11,20 @@ Panels:
             degraded state. The banner is the first thing that must be
             honest: a stale or degraded feed poisons every other panel.
   hurdle  — top-of-book quoted spread per near-ATM strike + the statutory
-            round-trip at that premium = the REAL live cost hurdle. This
-            replaces the 0.25% half-spread ESTIMATE as a display; frozen
-            studies keep their registered inputs.
-  walls   — per-strike OI concentration + intraday migration. Labelled
-            "OI concentration (proxy)" — public chain data supports an
-            inference label, never "dealer GEX" (G002 NO-GO stands).
-  maxpain — strike minimizing aggregate option payout at expiry, with its
-            migration over the session.
-  churn   — cumulative |Δ premium| of the ATM pair vs the statutory
-            hurdle, alongside the frozen pre-open rating. DESCRIPTIVE
-            gross premium churn — deliberately NOT h003.scalp_energy
-            (different formula; naming discipline).
+            round trip = the INDICATIVE all-in hurdle (labelled indicative
+            until it models actual ask entry / projected bid exit with
+            fixed-point STT). A display; frozen studies keep their
+            registered inputs.
+  walls   — per-strike OI concentration + intraday migration over ACTIVE
+            subscriptions (retarget-dropped strikes excluded as stale).
+            Labelled "OI concentration (proxy)" — public chain data
+            supports an inference label, never "dealer GEX" (G002 stands).
+  maxpain — captured-band max-pain proxy: band-local (the recorder sees
+            ATM+/-10, not the whole chain), stale strikes excluded.
+  churn   — ATM pair tick path length (includes bid/ask bounce, grows
+            with message frequency — NOT capturable energy; no economic
+            multiple is derived), alongside the frozen pre-open rating.
+            DESCRIPTIVE — deliberately NOT h003.scalp_energy.
 
 NO tickets, no entry arrows, no predictions, no order hooks — ever.
 """
@@ -36,9 +38,10 @@ from alpha.measure.costs import ZERODHA_NSE_OPTIONS_2026_07 as COST
 #: qty rows are multiples of 20). Used only to express costs per lot on
 #: screen — never in any study.
 LOTS = {"NIFTY": 65, "SENSEX": 20}
-#: statutory model is fitted to NSE contract notes; SENSEX rows show
-#: quoted spread only until a BSE-fitted model exists
-COSTED_SYMBOLS = ("NIFTY",)
+#: statutory model is exchange-aware (calibrated against real NSE and BSE
+#: contract notes — measured txn rates differ); both symbols get all-in
+#: hurdles
+EXCHANGE = {"NIFTY": "NSE", "SENSEX": "BSE"}
 _RATE_WINDOW_S = 10.0
 #: max-pain migration is sampled every Nth option tick per symbol —
 #: event-count-driven (deterministic in replay), and cheap enough for the
@@ -71,6 +74,9 @@ class Cockpit:
         self._tick_times: deque[int] = deque(maxlen=4096)
         self._maxpain_hist: dict[str, list[tuple[int, float]]] = {}
         self._mp_ticks: dict[str, int] = {}
+        #: keys unsubscribed by retargeting — their last-seen state is
+        #: STALE and must not feed walls/max-pain
+        self._inactive: set[str] = set()
         self.rating: dict | None = None      # display context, not an event
 
     # ---- context (not part of the event stream) -------------------------
@@ -112,8 +118,14 @@ class Cockpit:
             self.n_errors += 1
         elif kind == "ws_silent":
             self.n_silent += 1
-        elif kind in self.churn:
-            self.churn[kind] += 1
+        elif kind == "sub":
+            self.churn["sub"] += 1
+            self._inactive.difference_update(ev.get("keys") or [])
+        elif kind == "unsub":
+            self.churn["unsub"] += 1
+            self._inactive.update(ev.get("keys") or [])
+        elif kind == "retarget_noop":
+            self.churn["retarget_noop"] += 1
         elif kind == "session_end":
             self.ended = True
             self.degraded_reason = ev.get("degraded_reason")
@@ -167,8 +179,12 @@ class Cockpit:
 
     # ---- derived views (pure reads) -------------------------------------
     def _options(self, symbol: str) -> dict[tuple[float, str], dict]:
+        """Active option states only — an unsubscribed strike's last-seen
+        values are stale by definition and are excluded until re-subbed."""
         out = {}
         for key, st in self.inst.items():
+            if key in self._inactive:
+                continue
             m = self.meta.get(key)
             if (m and m.get("symbol") == symbol
                     and m.get("kind") == "option"):
@@ -214,8 +230,10 @@ class Cockpit:
 
     def spread_table(self, symbol: str, width: int = 3) -> list[dict]:
         """ATM +/- width strikes, both sides: quoted top-of-book spread and
-        the all-in breakeven (spread paid once + statutory round trip) as a
-        % of mid — the number a scalp must beat RIGHT NOW."""
+        the INDICATIVE all-in hurdle (spread paid once + statutory round
+        trip, both at mid turnover) as a % of mid. Indicative until it uses
+        actual ask entry / projected bid exit with the cost model's
+        fixed-point STT — labelled so on screen."""
         atm = self.atm_strike(symbol)
         opts = self._options(symbol)
         if atm is None:
@@ -240,8 +258,10 @@ class Cockpit:
                        "mid": round(mid, 2), "spread": round(spread, 2),
                        "spread_pct": round(spread / mid * 100, 2),
                        "breakeven_pct": None}
-                if symbol in COSTED_SYMBOLS and mid > 0:
-                    statutory = COST.round_trip_cost(mid * lot, mid * lot)
+                exch = EXCHANGE.get(symbol)
+                if exch and mid > 0:
+                    statutory = COST.round_trip_cost(mid * lot, mid * lot,
+                                                     exchange=exch)
                     row["breakeven_pct"] = round(
                         (spread * lot + statutory) / (mid * lot) * 100, 2)
                 rows.append(row)
@@ -265,8 +285,11 @@ class Cockpit:
         return rows[:top]
 
     def max_pain(self, symbol: str) -> dict:
-        """Strike minimizing total option payout at expiry settlement —
-        standard arithmetic over currently-seen OI, nothing more."""
+        """CAPTURED-BAND max-pain proxy: the payout-minimizing strike over
+        the OI of currently-subscribed instruments only. The recorder sees
+        ATM+/-10, not the complete chain, and retarget-dropped strikes are
+        excluded as stale — so this is a band-local proxy, never the
+        market-wide max pain quoted elsewhere."""
         opts = self._options(symbol)
         strikes = sorted({k for (k, _), st in opts.items()
                           if st.get("oi") is not None})
@@ -289,8 +312,12 @@ class Cockpit:
                 "history": list(self._maxpain_hist.get(symbol, []))}
 
     def churn_panel(self, symbol: str) -> dict:
-        """Cumulative |Δ premium| of the current ATM pair, per lot, vs the
-        statutory round-trip hurdle. DESCRIPTIVE — not h003.scalp_energy."""
+        """Cumulative tick-by-tick |ΔLTP| of the current ATM pair, per lot.
+        This is LTP PATH LENGTH: it includes bid/ask bounce, grows with
+        message frequency, and is NOT capturable trading energy — no
+        economic multiple is derived from it (an earlier draft compared it
+        to one round-trip hurdle; that comparison was misleading and is
+        deliberately absent). DESCRIPTIVE — not h003.scalp_energy."""
         atm = self.atm_strike(symbol)
         if atm is None:
             return {"atm": None}
@@ -299,18 +326,8 @@ class Cockpit:
         churn_units = sum(
             (opts.get((atm, s)) or {}).get("cum_abs_dltp", 0.0)
             for s in ("CE", "PE"))
-        mids = [(st["bid"] + st["ask"]) / 2
-                for s in ("CE", "PE")
-                if (st := opts.get((atm, s))) and st.get("bid") and st.get("ask")]
-        out = {"atm": atm, "churn_rs_per_lot": round(churn_units * lot, 0),
-               "hurdle_rs": None, "hurdle_multiples": None}
-        if symbol in COSTED_SYMBOLS and mids:
-            mid = sum(mids) / len(mids)
-            hurdle = COST.round_trip_cost(mid * lot, mid * lot)
-            out["hurdle_rs"] = round(hurdle, 0)
-            if hurdle > 0:
-                out["hurdle_multiples"] = round(churn_units * lot / hurdle, 1)
-        return out
+        return {"atm": atm,
+                "tick_path_rs_per_lot": round(churn_units * lot, 0)}
 
     def snapshot(self) -> dict:
         """Deterministic full-state view (the replay/live agreement and

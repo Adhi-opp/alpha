@@ -27,7 +27,7 @@ import pandas as pd                                             # noqa: E402
 from alpha.config import IST                                    # noqa: E402
 from alpha.live import replay                                   # noqa: E402
 from alpha.live.auth import load_upstox_token                   # noqa: E402
-from alpha.live.cockpit import COSTED_SYMBOLS, Cockpit          # noqa: E402
+from alpha.live.cockpit import Cockpit                          # noqa: E402
 from alpha.live.collector import SessionCapture                 # noqa: E402
 
 
@@ -68,8 +68,9 @@ def render(cp: Cockpit, now_ns: int | None = None) -> str:
         hist = mp["history"]
         migr = (" -> ".join(f"{int(k)}" for _, k in hist[-4:])
                 if hist else "-")
-        lines.append(f"max pain {_fmt(mp['strike'], 8, 0)}   migration: "
-                     f"{migr}")
+        lines.append(f"captured-band max pain (proxy — ATM band only, not "
+                     f"the full chain) {_fmt(mp['strike'], 8, 0)}   "
+                     f"migration: {migr}")
         walls = cp.oi_walls(sym, top=4)
         if walls:
             lines.append("OI concentration (proxy — public chain data, not "
@@ -81,9 +82,8 @@ def render(cp: Cockpit, now_ns: int | None = None) -> str:
                     f"(d {w['d_pe']:>+11,.0f})")
         rows = cp.spread_table(sym, width=2)
         if rows:
-            unit = ("all-in breakeven %" if sym in COSTED_SYMBOLS
-                    else "quoted spread only (no BSE cost model yet)")
-            lines.append(f"live hurdle ({unit}):")
+            lines.append("live hurdle (INDICATIVE all-in breakeven % — "
+                         "mid-based, not ask-entry/bid-exit):")
             lines.append("   strike side      bid      ask   spread  spr% "
                          "  be%")
             for r in rows:
@@ -94,10 +94,9 @@ def render(cp: Cockpit, now_ns: int | None = None) -> str:
                     f"{_fmt(r['breakeven_pct'], 5)}")
         if churn.get("atm") is not None:
             lines.append(
-                f"ATM pair gross premium churn (descriptive, NOT "
-                f"scalp_energy): Rs {_fmt(churn['churn_rs_per_lot'], 10, 0)}"
-                f"/lot   statutory hurdle Rs {_fmt(churn['hurdle_rs'], 7, 0)}"
-                f"   multiples {_fmt(churn['hurdle_multiples'], 6, 1)}")
+                f"ATM pair tick path length (incl. bid/ask bounce — NOT "
+                f"capturable energy, not scalp_energy): Rs "
+                f"{_fmt(churn['tick_path_rs_per_lot'], 10, 0)}/lot")
     lines.append("=" * 78)
     return "\n".join(lines)
 
@@ -152,8 +151,12 @@ class CockpitCapture(SessionCapture):
 
     def _enqueue_batch(self, events, raw=None, receipt_ns=None):
         ok = super()._enqueue_batch(events, raw, receipt_ns)
-        for ev in events:
-            self.cockpit.apply(ev)
+        # the screen may only ever show what was recorded: on queue
+        # overflow the batch was NOT enqueued, so it must not be reduced —
+        # otherwise tonight's replay could not reproduce the live board
+        if ok:
+            for ev in events:
+                self.cockpit.apply(ev)
         return ok
 
 

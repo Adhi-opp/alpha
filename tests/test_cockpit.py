@@ -117,13 +117,15 @@ def test_spread_table_is_the_live_hurdle():
     assert rows[(24000.0, "CE")]["spread"] is None
 
 
-def test_churn_panel_descriptive():
+def test_churn_panel_is_path_length_without_economic_multiple():
     cp = _reduced()
     out = cp.churn_panel("NIFTY")
     assert out["atm"] == 24100.0
     # CE cum |dltp| = 3.0, PE never moved -> 3.0 * lot
-    assert out["churn_rs_per_lot"] == pytest.approx(3.0 * LOTS["NIFTY"])
-    assert out["hurdle_rs"] is not None and out["hurdle_multiples"] is not None
+    assert out["tick_path_rs_per_lot"] == pytest.approx(3.0 * LOTS["NIFTY"])
+    # the misleading hurdle-multiples comparison must stay dead: path
+    # length includes bid/ask bounce and is not capturable energy
+    assert "hurdle_multiples" not in out and "hurdle_rs" not in out
 
 
 def test_feed_health_and_degraded_banner():
@@ -143,6 +145,63 @@ def test_feed_health_and_degraded_banner():
     h2 = cp2.feed_health()
     assert h2["reconnects"] == 1
     assert h2["banner"].startswith("DEGRADED")
+
+
+def test_sensex_rows_get_bse_costed_breakeven():
+    m = {"BSE_INDEX|SENSEX": {"symbol": "SENSEX", "kind": "index"},
+         "BSE_FO|1": {"symbol": "SENSEX", "kind": "option",
+                      "expiry": "2026-07-30", "strike": 76000.0,
+                      "side": "CE"},
+         "BSE_FO|2": {"symbol": "SENSEX", "kind": "option",
+                      "expiry": "2026-07-30", "strike": 76000.0,
+                      "side": "PE"}}
+    cp = Cockpit(m)
+    t = 2_000_000_000_000
+    cp.apply({"kind": "session_start", "t_local_ns": t,
+              "symbols": ["SENSEX"], "spots": {"SENSEX": 76050.0},
+              "chains": {"SENSEX": {"expiry": "2026-07-30"}}})
+    cp.apply(_tick("BSE_FO|1", t + 1, 658.0, oi=100.0,
+                   depth=[[658.0, 20.0, 659.25, 20.0]]))
+    r = {(x["strike"], x["side"]): x
+         for x in cp.spread_table("SENSEX", width=0)}[(76000.0, "CE")]
+    # the exchange-aware model prices BSE all-in — no more None
+    lot = LOTS["SENSEX"]
+    mid = (658.0 + 659.25) / 2
+    statutory = COST.round_trip_cost(mid * lot, mid * lot, exchange="BSE")
+    expect = ((659.25 - 658.0) * lot + statutory) / (mid * lot) * 100
+    assert r["breakeven_pct"] == pytest.approx(expect, abs=0.005)
+
+
+def test_retarget_dropped_strikes_are_excluded_as_stale():
+    cp = _reduced()
+    keys = [_KEY[(24000.0, "CE")], _KEY[(24000.0, "PE")]]
+    cp.apply({"kind": "unsub", "t_local_ns": 9_000_000_000_000,
+              "keys": keys, "reason": "retarget"})
+    # last-seen OI at a dropped strike is stale: out of walls AND max pain
+    assert 24000.0 not in [w["strike"] for w in cp.oi_walls("NIFTY")]
+    # without 24000: payouts 8,000 @24100 vs 5,000 @24200 -> 24200
+    assert cp.max_pain("NIFTY")["strike"] == 24200.0
+    cp.apply({"kind": "sub", "t_local_ns": 9_000_000_000_001,
+              "keys": keys, "reason": "retarget"})
+    assert 24000.0 in [w["strike"] for w in cp.oi_walls("NIFTY")]
+    assert cp.max_pain("NIFTY")["strike"] == 24100.0
+    assert cp.churn["unsub"] == 1 and cp.churn["sub"] == 1
+
+
+def test_live_tee_never_consumes_unrecorded_events(tmp_path):
+    """The screen may only show what was recorded: an overflow-dropped
+    batch must not reach the reducer, or replay could not reproduce it."""
+    from scripts.cockpit import CockpitCapture
+    cap = CockpitCapture("dummy-token", out_root=tmp_path, queue_max=1,
+                         label="teetest")
+    ok = cap._enqueue_batch([{"kind": "market_info",
+                              "segments": {"NSE_FO": "NORMAL_OPEN"}}])
+    assert ok is True
+    assert cap.cockpit.counts.get("market_info") == 1
+    ok2 = cap._enqueue_batch([{"kind": "index", "key": "X", "ltp": 1.0}])
+    assert ok2 is False                       # queue full -> not recorded
+    assert "index" not in cap.cockpit.counts  # -> not displayed either
+    assert cap._degraded_reason is not None
 
 
 def test_reducer_is_deterministic():

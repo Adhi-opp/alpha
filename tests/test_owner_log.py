@@ -257,6 +257,14 @@ def test_emit_and_finalize_forward_rating(tmp_path):
                                       root=root, journal_dir=j,
                                       now_ist=pre_open)
 
+    # a non-expiry session can never enter the ledger — a mistaken Monday
+    # emission would only inflate the displayed emission count
+    with pytest.raises(ValueError, match="not a NIFTY expiry"):
+        owner_log.emit_forward_rating(
+            "2026-07-27", asof=_EMIT_ASOF, root=root, journal_dir=j,
+            now_ist=pd.Timestamp("2026-07-27 08:55").tz_localize(IST))
+    assert len(owner_log.load_forward_ratings(j)) == 1   # nothing added
+
     # 'traded' needs the journal row first; the journal is empty
     with pytest.raises(ValueError, match="contract note first"):
         owner_log.finalize_forward_rating("2026-07-28", "traded",

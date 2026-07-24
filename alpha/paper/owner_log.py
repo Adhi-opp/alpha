@@ -302,7 +302,14 @@ def emit_forward_rating(session_date, asof: datetime | None = None,
     if len(existing) and (existing["session_date"].dt.normalize()
                           == session_date).any():
         raise ValueError(f"rating for {session_date.date()} already emitted")
-    row = {**compute_forward_rating(session_date, asof, root),
+    computed = compute_forward_rating(session_date, asof, root)
+    if not computed["is_nifty_expiry"]:
+        raise ValueError(
+            f"{session_date.date()} is not a NIFTY expiry session per the "
+            f"bhavcopy calendar — H-004 samples expiry sessions only; a "
+            f"non-expiry row would only inflate the emission count, so "
+            f"nothing was written")
+    row = {**computed,
            "emitted_at_ist": now_ist.strftime("%Y-%m-%dT%H:%M"),
            "outcome": "pending", "note": note}
     out = (existing.assign(

@@ -144,26 +144,42 @@ live and replay are the same function — verified by replaying probe #2's
 
 - **feed** — banner (OK / STALE / MARKET CLOSED / DEGRADED), 10-s tick
   rate, reconnects/errors, subscription churn.
-- **live hurdle** — top-of-book quoted spread per ATM±width strike plus
-  the statutory round trip = all-in breakeven % of premium. Probe #2
-  measured NIFTY ATM full spreads 0.15–0.26% of premium (half-spread
-  ≈ 0.08–0.13% — about HALF the 0.25% estimate the studies carry) and
-  all-in breakevens ~0.8–1.4%. Display only: frozen studies keep their
-  registered inputs until a registered study replaces the estimate.
-  SENSEX shows quoted spread only (no BSE-fitted statutory model yet).
+- **live hurdle (INDICATIVE)** — top-of-book quoted spread per ATM±width
+  strike plus the statutory round trip = indicative all-in breakeven % of
+  premium (mid-based; labelled indicative until it models actual ask
+  entry / projected bid exit with fixed-point STT). The cost model is
+  exchange-aware (NSE + BSE both calibrated to real contract notes), so
+  BOTH symbols get all-in figures. Probe #2 measured NIFTY ATM full
+  spreads 0.15–0.26% of premium, indicative breakevens ~0.8–1.4%; SENSEX
+  0.78–1.03%. ONE ten-minute afternoon sample — display only, NOT grounds
+  to replace the registered 0.25% assumption (that needs its own study
+  over full sessions).
 - **OI concentration (proxy)** — per-strike CE/PE OI + intraday delta
-  (vs first-seen). Inference label; never "dealer GEX" (G002 stands).
-  Probe #2: 23800 PE 13.9M / 24000 CE 16.3M walls.
-- **max pain + migration** — standard payout-minimizing arithmetic,
-  sampled every 500th OI tick (event-count-driven -> deterministic in
-  replay). KNOWN ARTIFACT: the first history sample lands while initial
-  snapshots are still arriving, so the earliest migration entry can
-  reflect a partial book (probe #2: NIFTY "23400" first sample); read
-  migration from the second entry onward early in a session.
-- **ATM pair gross premium churn vs statutory hurdle** — DESCRIPTIVE,
-  deliberately NOT h003.scalp_energy (different formula; the name stays
-  reserved for the frozen study). Also shows the frozen pre-open rating
-  (from `journal/ratings_forward.csv`) or "NONE EMITTED".
+  (vs first-seen) over ACTIVE subscriptions only — strikes dropped by a
+  retarget are excluded as stale until re-subscribed. Inference label;
+  never "dealer GEX" (G002 stands). Probe #2: 23800 PE 13.9M / 24000 CE
+  16.3M walls.
+- **captured-band max-pain proxy + migration** — payout-minimizing strike
+  over the SUBSCRIBED band only (ATM±10, stale strikes excluded), NOT the
+  market-wide max pain quoted elsewhere; sampled every 500th OI tick
+  (event-count-driven -> deterministic in replay). KNOWN ARTIFACT: the
+  first history sample lands while initial snapshots are still arriving,
+  so the earliest migration entry can reflect a partial book (probe #2:
+  NIFTY "23400" first sample); read migration from the second entry
+  onward early in a session.
+- **ATM pair tick path length** — cumulative |ΔLTP| per lot. Includes
+  bid/ask bounce and grows with message frequency: NOT capturable
+  trading energy, so no economic multiple is derived from it (an earlier
+  draft showed "hurdle multiples"; that comparison was misleading and
+  was removed). DESCRIPTIVE — deliberately NOT h003.scalp_energy. Also
+  shows the frozen pre-open rating (from `journal/ratings_forward.csv`)
+  or "NONE EMITTED".
+- **screen = record** — the live tee reduces a batch only after the
+  recorder queue accepted it: an overflow-dropped batch never reaches
+  the screen, so tonight's replay always reproduces the live board.
+- **emission hygiene** — `emit_rating.py` additionally refuses
+  non-expiry sessions (a mistaken Monday emission would only inflate the
+  emission count; H-004 samples expiry sessions only).
 
 NO tickets, no entry arrows, no predictions, no order hooks — ever.
 
